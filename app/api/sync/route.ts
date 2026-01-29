@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+export const dynamic = "force-dynamic";
 import { scrapeTargetSite } from "@/lib/scraping";
 import { adminDb } from "@/lib/firebase-admin";
 import { decrypt } from "@/lib/encryption";
