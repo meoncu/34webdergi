@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
             if (!doc.exists) {
                 batch.set(docRef, {
                     ...article,
-                    olusturmaTarihi: adminDb.app.options.projectId ? new Date() : new Date(), // Handle different server environments
+                    olusturmaTarihi: new Date(),
                 });
                 savedCount++;
             }
