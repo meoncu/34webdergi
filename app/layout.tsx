@@ -6,7 +6,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: "Panze Studio - Dergi Arşivi",
+  title: "Dergi Arşivi",
   description: "Modern, güvenli ve hızlı dergi/makale arşiv uygulaması.",
   manifest: "/manifest.json",
   themeColor: "#8b5cf6",
