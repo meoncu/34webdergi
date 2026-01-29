@@ -126,8 +126,9 @@ export default function ArticleDetail() {
             setNewComment("");
             const updatedComments = await analyticsService.getComments(id);
             setComments(updatedComments);
-        } catch (error) {
+        } catch (error: any) {
             console.error("Comment error:", error);
+            alert("Yorum gönderilemedi: " + (error.message || "Bilinmeyen bir hata oluştu."));
         } finally {
             setIsSubmitting(false);
         }
