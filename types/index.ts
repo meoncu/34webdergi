@@ -35,4 +35,32 @@ export interface User {
     displayName: string;
     photoURL?: string;
     role: 'admin' | 'user';
+    lastLogin?: any;
+}
+
+export interface Activity {
+    id?: string;
+    type: 'read' | 'like' | 'comment' | 'login';
+    userId: string;
+    userEmail: string;
+    userName: string;
+    articleId?: string;
+    articleTitle?: string;
+    content?: string; // For comments
+    timestamp: any;
+}
+
+export interface Comment {
+    id?: string;
+    articleId: string;
+    userId: string;
+    userName: string;
+    userPhoto?: string;
+    text: string;
+    createdAt: any;
+}
+
+export interface Like {
+    articleId: string;
+    userId: string;
 }

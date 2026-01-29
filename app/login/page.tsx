@@ -3,7 +3,8 @@
 import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
-import { BookOpen, LogIn } from "lucide-react";
+import { BookOpen } from "lucide-react";
+import { userService } from "@/lib/user";
 
 export default function LoginPage() {
     const router = useRouter();
@@ -11,7 +12,8 @@ export default function LoginPage() {
     const handleGoogleLogin = async () => {
         const provider = new GoogleAuthProvider();
         try {
-            await signInWithPopup(auth, provider);
+            const result = await signInWithPopup(auth, provider);
+            await userService.syncUser(result.user);
             router.push("/");
         } catch (error) {
             console.error("Login error", error);

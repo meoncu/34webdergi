@@ -19,17 +19,40 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { articleService } from "@/lib/articles";
-import { Article } from "@/types";
+import { analyticsService } from "@/lib/analytics";
+import { auth } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { Article, Comment } from "@/types";
+import { Heart, MessageCircle, Send } from "lucide-react";
 
 export default function ArticleDetail() {
     const [isDarkMode, setIsDarkMode] = useState(false);
     const [fontSize, setFontSize] = useState(18);
     const [article, setArticle] = useState<Article | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [currentUser, setCurrentUser] = useState<any>(null);
+
+    // Analytics & Social States
+    const [readCount, setReadCount] = useState(0);
+    const [likeCount, setLikeCount] = useState(0);
+    const [isLiked, setIsLiked] = useState(false);
+    const [comments, setComments] = useState<Comment[]>([]);
+    const [newComment, setNewComment] = useState("");
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
     const params = useParams();
     const router = useRouter();
     const id = params?.id as string;
 
+    // Auth monitor
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, (user) => {
+            setCurrentUser(user);
+        });
+        return () => unsubscribe();
+    }, []);
+
+    // Fetch Article Data & Log Read
     useEffect(() => {
         const fetchArticle = async () => {
             if (!id) return;
@@ -37,8 +60,32 @@ export default function ArticleDetail() {
                 const data = await articleService.getById(id);
                 if (data) {
                     setArticle(data);
-                } else {
-                    console.error("Article not found");
+
+                    // Stats
+                    const [rc, lc, comms] = await Promise.all([
+                        analyticsService.getArticleReadCount(id),
+                        analyticsService.getLikeCount(id),
+                        analyticsService.getComments(id)
+                    ]);
+                    setReadCount(rc);
+                    setLikeCount(lc);
+                    setComments(comms);
+
+                    // User specific
+                    if (currentUser) {
+                        const liked = await analyticsService.isLiked(id, currentUser.uid);
+                        setIsLiked(liked);
+
+                        // Log Read Event
+                        await analyticsService.logActivity({
+                            type: 'read',
+                            userId: currentUser.uid,
+                            userName: currentUser.displayName || 'Anonim',
+                            userEmail: currentUser.email || '',
+                            articleId: id,
+                            articleTitle: data.baslik
+                        });
+                    }
                 }
             } catch (error) {
                 console.error("Fetch article error:", error);
@@ -46,8 +93,45 @@ export default function ArticleDetail() {
                 setIsLoading(false);
             }
         };
-        fetchArticle();
-    }, [id]);
+        if (id) fetchArticle();
+    }, [id, currentUser]);
+
+    const handleLike = async () => {
+        if (!currentUser || !article || !id) return;
+        const result = await analyticsService.toggleLike(
+            id,
+            currentUser.uid,
+            currentUser.displayName || 'Anonim',
+            currentUser.email || '',
+            article.baslik
+        );
+        setIsLiked(result);
+        setLikeCount(prev => result ? prev + 1 : prev - 1);
+    };
+
+    const handleComment = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!currentUser || !article || !newComment.trim() || isSubmitting) return;
+
+        setIsSubmitting(true);
+        try {
+            const commentObj = {
+                articleId: id,
+                userId: currentUser.uid,
+                userName: currentUser.displayName || 'Anonim',
+                userPhoto: currentUser.photoURL || '',
+                text: newComment.trim()
+            };
+            await analyticsService.addComment(commentObj, currentUser.email || '', article.baslik);
+            setNewComment("");
+            const updatedComments = await analyticsService.getComments(id);
+            setComments(updatedComments);
+        } catch (error) {
+            console.error("Comment error:", error);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
 
     if (isLoading) {
         return (
@@ -164,6 +248,99 @@ export default function ArticleDetail() {
                     style={{ fontSize: `${fontSize}px`, lineHeight: 1.6 }}
                     dangerouslySetInnerHTML={{ __html: article.icerikHTML || article.icerikText }}
                 />
+
+                <div className="h-px bg-linear-to-r from-transparent via-slate-200 dark:via-slate-800 to-transparent my-16" />
+
+                {/* Social Actions */}
+                <div className="flex items-center justify-center gap-8 py-8 border-y border-slate-100 dark:border-slate-800">
+                    <button
+                        onClick={handleLike}
+                        className={cn(
+                            "flex flex-col items-center gap-2 transition-all active:scale-90",
+                            isLiked ? "text-red-500" : "text-slate-400 hover:text-red-500"
+                        )}
+                    >
+                        <div className={cn(
+                            "w-14 h-14 rounded-full flex items-center justify-center border transition-all",
+                            isLiked ? "bg-red-50 border-red-200" : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+                        )}>
+                            <Heart className={cn("w-6 h-6", isLiked && "fill-current")} />
+                        </div>
+                        <span className="text-sm font-bold">{likeCount} Beğeni</span>
+                    </button>
+
+                    <div className="flex flex-col items-center gap-2 text-slate-400">
+                        <div className="w-14 h-14 rounded-full flex items-center justify-center border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
+                            <Clock className="w-6 h-6" />
+                        </div>
+                        <span className="text-sm font-bold">{readCount} Okunma</span>
+                    </div>
+
+                    <div className="flex flex-col items-center gap-2 text-slate-400">
+                        <div className="w-14 h-14 rounded-full flex items-center justify-center border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
+                            <MessageCircle className="w-6 h-6" />
+                        </div>
+                        <span className="text-sm font-bold">{comments.length} Yorum</span>
+                    </div>
+                </div>
+
+                {/* Comment Section */}
+                <div className="space-y-8 pt-12">
+                    <h3 className="text-2xl font-black flex items-center gap-3">
+                        <MessageCircle className="w-6 h-6 text-brand-purple" />
+                        Yorumlar ({comments.length})
+                    </h3>
+
+                    {currentUser ? (
+                        <form onSubmit={handleComment} className="relative group">
+                            <textarea
+                                value={newComment}
+                                onChange={(e) => setNewComment(e.target.value)}
+                                placeholder="Düşüncelerinizi paylaşın..."
+                                className="w-full bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 rounded-3xl p-6 pr-16 min-h-[120px] focus:border-brand-purple outline-none transition-all placeholder:text-slate-400"
+                            />
+                            <button
+                                type="submit"
+                                disabled={isSubmitting || !newComment.trim()}
+                                className="absolute bottom-6 right-6 w-10 h-10 bg-brand-purple text-white rounded-full flex items-center justify-center hover:bg-brand-purple/90 transition-all disabled:opacity-50 disabled:scale-95 shadow-lg shadow-brand-purple/20"
+                            >
+                                {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-4 h-4" />}
+                            </button>
+                        </form>
+                    ) : (
+                        <div className="bg-slate-100/50 dark:bg-slate-900/50 p-8 rounded-3xl text-center border-2 border-dashed border-slate-200 dark:border-slate-800">
+                            <p className="text-slate-500 font-bold mb-4 text-lg">Yorum yapmak için giriş yapmalısınız.</p>
+                            <Link href="/login" className="inline-flex items-center gap-2 bg-slate-900 text-white px-8 py-3 rounded-2xl font-bold hover:bg-slate-800 transition-all">
+                                Giriş Yap
+                            </Link>
+                        </div>
+                    )}
+
+                    <div className="space-y-6">
+                        {comments.length === 0 ? (
+                            <p className="text-center text-slate-400 italic py-8">Henüz yorum yapılmamış. İlk yorumu siz yapın!</p>
+                        ) : comments.map((comment) => (
+                            <div key={comment.id} className="flex gap-4 p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 shadow-sm transition-all hover:shadow-md">
+                                <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center overflow-hidden shrink-0">
+                                    {comment.userPhoto ? (
+                                        <img src={comment.userPhoto} alt={comment.userName} className="w-full h-full object-cover" />
+                                    ) : (
+                                        <User className="w-5 h-5 text-slate-400" />
+                                    )}
+                                </div>
+                                <div className="flex-1 space-y-2 text-left">
+                                    <div className="flex items-center justify-between">
+                                        <p className="font-bold text-slate-900 dark:text-slate-200">{comment.userName}</p>
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                            {comment.createdAt?.toDate?.() ? new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'long' }).format(comment.createdAt.toDate()) : 'Az önce'}
+                                        </span>
+                                    </div>
+                                    <p className="text-slate-600 dark:text-slate-400 leading-relaxed">{comment.text}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
 
                 <div className="h-px bg-linear-to-r from-transparent via-slate-200 dark:via-slate-800 to-transparent my-16" />
 

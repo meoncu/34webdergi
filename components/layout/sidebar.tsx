@@ -14,7 +14,8 @@ import {
     LogOut,
     ChevronRight,
     Menu,
-    X
+    X,
+    BarChart3
 } from "lucide-react";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -31,6 +32,7 @@ const menuItems = [
         group: "YÖNETİM", items: [
             { name: "Abonelik Yönetimi", icon: Users, href: "/admin/subscriptions" },
             { name: "İçerik Yönetimi", icon: BookOpen, href: "/admin/articles" },
+            { name: "Analiz & Kullanıcılar", icon: BarChart3, href: "/admin/analytics" },
         ]
     }
 ];
