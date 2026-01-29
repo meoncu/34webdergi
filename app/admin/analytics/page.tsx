@@ -13,7 +13,8 @@ import {
     Clock,
     User as UserIcon,
     ChevronRight,
-    Loader2
+    Loader2,
+    X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { analyticsService } from "@/lib/analytics";
@@ -27,6 +28,11 @@ export default function AnalyticsDashboard() {
     const [isLoading, setIsLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
     const [activeTab, setActiveTab] = useState<'activities' | 'users' | 'articles'>('activities');
+
+    // User detail states
+    const [selectedUser, setSelectedUser] = useState<User | null>(null);
+    const [userActivities, setUserActivities] = useState<Activity[]>([]);
+    const [isFetchingUserActs, setIsFetchingUserActs] = useState(false);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -46,6 +52,19 @@ export default function AnalyticsDashboard() {
         };
         fetchData();
     }, []);
+
+    const handleUserDetail = async (user: User) => {
+        setSelectedUser(user);
+        setIsFetchingUserActs(true);
+        try {
+            const acts = await analyticsService.getUserActivities(user.uid);
+            setUserActivities(acts);
+        } catch (error) {
+            console.error("Fetch user activities error:", error);
+        } finally {
+            setIsFetchingUserActs(false);
+        }
+    };
 
     // Derived Stats
     const totalReads = activities.filter(a => a.type === 'read').length;
@@ -213,7 +232,12 @@ export default function AnalyticsDashboard() {
                                         <Clock className="w-3 h-3" />
                                         {user.lastLogin?.toDate?.() ? new Intl.DateTimeFormat('tr-TR').format(user.lastLogin.toDate()) : 'Bilinmiyor'}
                                     </span>
-                                    <button className="text-brand-purple hover:underline">Detay Gör</button>
+                                    <button
+                                        onClick={() => handleUserDetail(user)}
+                                        className="text-brand-purple hover:underline font-bold"
+                                    >
+                                        Detay Gör
+                                    </button>
                                 </div>
                             </div>
                         ))}
@@ -263,6 +287,95 @@ export default function AnalyticsDashboard() {
                             ))}
                         </tbody>
                     </table>
+                </div>
+            )}
+
+            {/* User Activity Modal */}
+            {selectedUser && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div
+                        className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200"
+                        onClick={() => setSelectedUser(null)}
+                    />
+                    <div className="relative bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[80vh] animate-in zoom-in-95 duration-200">
+                        {/* Modal Header */}
+                        <div className="p-8 border-b border-slate-50 flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center overflow-hidden border border-slate-200">
+                                    {selectedUser.photoURL ? (
+                                        <img src={selectedUser.photoURL} alt={selectedUser.displayName} className="w-full h-full object-cover" />
+                                    ) : (
+                                        <UserIcon className="w-6 h-6 text-slate-400" />
+                                    )}
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-black text-slate-900 leading-tight">{selectedUser.displayName}</h3>
+                                    <p className="text-sm text-slate-500 font-medium">{selectedUser.email}</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setSelectedUser(null)}
+                                className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-all"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Modal Content */}
+                        <div className="flex-1 overflow-y-auto p-8 space-y-6">
+                            <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Son Hareketler</h4>
+
+                            {isFetchingUserActs ? (
+                                <div className="flex flex-col items-center justify-center py-20 gap-4">
+                                    <Loader2 className="w-8 h-8 text-brand-purple animate-spin" />
+                                    <p className="text-slate-400 font-bold text-sm">Veriler çekiliyor...</p>
+                                </div>
+                            ) : userActivities.length === 0 ? (
+                                <div className="text-center py-20 bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
+                                    <p className="text-slate-400 font-medium">Bu kullanıcıya ait henüz bir hareket bulunmuyor.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {userActivities.map((act) => (
+                                        <div key={act.id} className="flex gap-4 p-4 rounded-2xl bg-slate-50/50 border border-slate-100">
+                                            <div className={cn(
+                                                "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
+                                                act.type === 'read' ? "bg-blue-100 text-blue-600" :
+                                                    act.type === 'like' ? "bg-red-100 text-red-600" :
+                                                        act.type === 'comment' ? "bg-purple-100 text-purple-600" : "bg-slate-200 text-slate-600"
+                                            )}>
+                                                {act.type === 'read' ? <Eye className="w-5 h-5" /> :
+                                                    act.type === 'like' ? <Heart className="w-5 h-5" /> :
+                                                        act.type === 'comment' ? <MessageSquare className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
+                                            </div>
+                                            <div className="flex-1 space-y-1">
+                                                <div className="flex items-center justify-between">
+                                                    <p className="text-sm font-bold text-slate-900">
+                                                        {act.type === 'read' ? 'Yazı Okundu' :
+                                                            act.type === 'like' ? 'Yazı Beğenildi' :
+                                                                act.type === 'comment' ? 'Yorum Yapıldı' : 'Giriş Yapıldı'}
+                                                    </p>
+                                                    <span className="text-[10px] font-black text-slate-400 uppercase">
+                                                        {act.timestamp?.toDate?.() ? new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(act.timestamp.toDate()) : 'Az önce'}
+                                                    </span>
+                                                </div>
+                                                {act.articleTitle && (
+                                                    <p className="text-xs font-medium text-brand-purple line-clamp-1 italic">
+                                                        "{act.articleTitle}"
+                                                    </p>
+                                                )}
+                                                {act.content && (
+                                                    <p className="text-xs text-slate-500 bg-white p-2 rounded-xl mt-1 border border-slate-100">
+                                                        "{act.content}"
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
