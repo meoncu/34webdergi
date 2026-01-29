@@ -25,6 +25,20 @@ export default function Dashboard() {
   const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [selectedMonth, setSelectedMonth] = useState<string>("Ocak");
 
+  // İlk yüklemede hafızadan getir
+  useEffect(() => {
+    const savedYear = sessionStorage.getItem("selectedYear");
+    const savedMonth = sessionStorage.getItem("selectedMonth");
+    if (savedYear) setSelectedYear(Number(savedYear));
+    if (savedMonth) setSelectedMonth(savedMonth);
+  }, []);
+
+  // Seçim değiştikçe hafızaya kaydet
+  useEffect(() => {
+    sessionStorage.setItem("selectedYear", selectedYear.toString());
+    sessionStorage.setItem("selectedMonth", selectedMonth);
+  }, [selectedYear, selectedMonth]);
+
   // Mevcut yıl/ay listesini getir
   useEffect(() => {
     const fetchStats = async () => {
@@ -32,14 +46,17 @@ export default function Dashboard() {
         const stats = await articleService.getStats();
         setAvailableStats(stats);
 
-        // Mevcut en yüksek yılı ve ayı varsayılan seç
-        const years = Object.keys(stats).map(Number).sort((a, b) => b - a);
-        if (years.length > 0) {
-          const latestYear = years[0];
-          setSelectedYear(latestYear);
-          const months = Object.keys(stats[latestYear]);
-          if (months.length > 0) {
-            setSelectedMonth(months[0]);
+        // Sadece hafızada kayıt yoksa en güncel yılı seç
+        const savedYear = sessionStorage.getItem("selectedYear");
+        if (!savedYear) {
+          const years = Object.keys(stats).map(Number).sort((a, b) => b - a);
+          if (years.length > 0) {
+            const latestYear = years[0];
+            setSelectedYear(latestYear);
+            const months = Object.keys(stats[latestYear]);
+            if (months.length > 0) {
+              setSelectedMonth(months[0]);
+            }
           }
         }
       } catch (error) {
@@ -72,6 +89,7 @@ export default function Dashboard() {
 
   // Yıl değiştiğinde seçili ayın geçerliliğini kontrol et
   useEffect(() => {
+    // Sadece hafızada olmayan veya geçersiz olan ay durumunda düzeltme yap
     if (months.length > 0 && !months.includes(selectedMonth)) {
       setSelectedMonth(months[0]);
     }
