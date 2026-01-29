@@ -21,6 +21,7 @@ import { userService } from "@/lib/user";
 import { User, Activity } from "@/types";
 
 export default function ProfilePage() {
+    const [firebaseUser, setFirebaseUser] = useState<any>(null);
     const [user, setUser] = useState<User | null>(null);
     const [stats, setStats] = useState({
         reads: 0,
@@ -31,16 +32,35 @@ export default function ProfilePage() {
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-            if (firebaseUser) {
+        const unsubscribe = onAuthStateChanged(auth, async (fUser) => {
+            setFirebaseUser(fUser);
+            if (fUser) {
                 try {
-                    const userData = await userService.getUser(firebaseUser.uid);
-                    setUser(userData);
+                    // Try to get synced data, but fallback to sync if missing
+                    let userData = await userService.getUser(fUser.uid);
+
+                    if (!userData) {
+                        // If user exists in Auth but not in DB, sync them now
+                        userData = await userService.syncUser(fUser);
+                    }
+
+                    if (userData) {
+                        setUser(userData);
+                    } else {
+                        // Absolute fallback to just the Auth data to avoid "Not Logged In" screen
+                        setUser({
+                            uid: fUser.uid,
+                            email: fUser.email || "",
+                            displayName: fUser.displayName || "Kullanıcı",
+                            photoURL: fUser.photoURL || "",
+                            role: 'user'
+                        } as any);
+                    }
 
                     // Fetch user specific stats
                     const [userActivities, bookmarks] = await Promise.all([
-                        analyticsService.getUserActivities(firebaseUser.uid),
-                        analyticsService.getUserBookmarks(firebaseUser.uid)
+                        analyticsService.getUserActivities(fUser.uid),
+                        analyticsService.getUserBookmarks(fUser.uid)
                     ]);
 
                     setActivities(userActivities.slice(0, 10)); // Last 10
@@ -55,6 +75,7 @@ export default function ProfilePage() {
                     setIsLoading(false);
                 }
             } else {
+                setUser(null);
                 setIsLoading(false);
             }
         });
@@ -70,7 +91,7 @@ export default function ProfilePage() {
         );
     }
 
-    if (!user) {
+    if (!firebaseUser || !user) {
         return (
             <div className="max-w-md mx-auto text-center py-20 space-y-6">
                 <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-slate-400">
