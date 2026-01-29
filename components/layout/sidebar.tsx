@@ -16,9 +16,11 @@ import {
     ChevronRight,
     Menu,
     X,
-    BarChart3
+    BarChart3,
+    User as UserIcon,
+    LogIn
 } from "lucide-react";
-import { signOut } from "firebase/auth";
+import { signOut, onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -48,6 +50,15 @@ export function Sidebar() {
     useEffect(() => {
         setIsOpen(false);
     }, [pathname]);
+
+    const [user, setUser] = useState<any>(null);
+
+    useEffect(() => {
+        const unsubscribe = onAuthStateChanged(auth, (u) => {
+            setUser(u);
+        });
+        return () => unsubscribe();
+    }, []);
 
     const handleLogout = async () => {
         try {
@@ -132,13 +143,45 @@ export function Sidebar() {
                     ))}
                 </nav>
 
-                <div className="p-4 border-t border-slate-100">
+                <div className="p-4 border-t border-slate-100 space-y-2">
+                    {user ? (
+                        <Link
+                            href="/profile"
+                            className={cn(
+                                "flex items-center gap-3 p-3 rounded-2xl transition-all hover:bg-slate-50 group",
+                                pathname === "/profile" && "bg-slate-50 border border-slate-100"
+                            )}
+                        >
+                            <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center overflow-hidden border border-slate-200">
+                                {user.photoURL ? (
+                                    <img src={user.photoURL} alt={user.displayName} className="w-full h-full object-cover" />
+                                ) : (
+                                    <UserIcon className="w-5 h-5 text-slate-400" />
+                                )}
+                            </div>
+                            <div className="flex-1 overflow-hidden">
+                                <p className="text-sm font-bold text-slate-900 truncate">{user.displayName || 'Kullanıcı'}</p>
+                                <p className="text-[10px] font-bold text-slate-400 truncate uppercase mt-0.5 tracking-wider">Profilim</p>
+                            </div>
+                        </Link>
+                    ) : (
+                        <Link
+                            href="/login"
+                            className="flex items-center gap-3 p-3 rounded-2xl hover:bg-slate-50 transition-all text-slate-500 font-bold text-sm"
+                        >
+                            <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center">
+                                <LogIn className="w-5 h-5" />
+                            </div>
+                            Giriş Yap
+                        </Link>
+                    )}
+
                     <button
                         onClick={handleLogout}
                         className="flex items-center gap-3 px-4 py-2.5 text-slate-500 hover:text-red-500 transition-colors w-full group"
                     >
                         <LogOut className="w-5 h-5 group-hover:text-red-500" />
-                        <span className="text-sm font-medium">Kilitle / Çıkış</span>
+                        <span className="text-sm font-medium">Çıkış Yap</span>
                     </button>
                 </div>
             </aside>
