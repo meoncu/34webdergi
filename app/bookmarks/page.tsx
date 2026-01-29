@@ -45,8 +45,11 @@ export default function BookmarksPage() {
                 } else {
                     setArticles([]);
                 }
-            } catch (error) {
+            } catch (error: any) {
                 console.error("Fetch bookmarks error:", error);
+                if (error.message?.includes("index")) {
+                    alert("Bu sayfa için bir dizin (index) gerekiyor. Lütfen tarayıcı konsolundaki (F12) linke tıklayarak dizini oluşturun.");
+                }
             } finally {
                 setIsLoading(false);
             }
