@@ -143,5 +143,37 @@ export const analyticsService = {
         );
         const snapshot = await getDocs(q);
         return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Comment[];
+    },
+
+    // Bookmarks
+    async toggleBookmark(articleId: string, userId: string) {
+        const q = query(
+            collection(db, "bookmarks"),
+            where("articleId", "==", articleId),
+            where("userId", "==", userId)
+        );
+        const snapshot = await getDocs(q);
+
+        if (!snapshot.empty) {
+            await deleteDoc(doc(db, "bookmarks", snapshot.docs[0].id));
+            return false;
+        } else {
+            await addDoc(collection(db, "bookmarks"), {
+                articleId,
+                userId,
+                createdAt: serverTimestamp()
+            });
+            return true;
+        }
+    },
+
+    async isBookmarked(articleId: string, userId: string) {
+        const q = query(
+            collection(db, "bookmarks"),
+            where("articleId", "==", articleId),
+            where("userId", "==", userId)
+        );
+        const snapshot = await getDocs(q);
+        return !snapshot.empty;
     }
 };

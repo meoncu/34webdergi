@@ -36,6 +36,7 @@ export default function ArticleDetail() {
     const [readCount, setReadCount] = useState(0);
     const [likeCount, setLikeCount] = useState(0);
     const [isLiked, setIsLiked] = useState(false);
+    const [isBookmarked, setIsBookmarked] = useState(false);
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -73,8 +74,12 @@ export default function ArticleDetail() {
 
                     // User specific
                     if (currentUser) {
-                        const liked = await analyticsService.isLiked(id, currentUser.uid);
+                        const [liked, bookmarked] = await Promise.all([
+                            analyticsService.isLiked(id, currentUser.uid),
+                            analyticsService.isBookmarked(id, currentUser.uid)
+                        ]);
                         setIsLiked(liked);
+                        setIsBookmarked(bookmarked);
 
                         // Log Read Event
                         await analyticsService.logActivity({
@@ -107,6 +112,39 @@ export default function ArticleDetail() {
         );
         setIsLiked(result);
         setLikeCount(prev => result ? prev + 1 : prev - 1);
+    };
+
+    const handleShare = async () => {
+        if (!article) return;
+        const shareData = {
+            title: article.baslik,
+            text: `${article.baslik} - ${article.yazarAdi}`,
+            url: window.location.href
+        };
+
+        if (navigator.share) {
+            try {
+                await navigator.share(shareData);
+            } catch (err) {
+                console.log('Share error:', err);
+            }
+        } else {
+            try {
+                await navigator.clipboard.writeText(window.location.href);
+                alert("Bağlantı kopyalandı!");
+            } catch (err) {
+                console.error('Clipboard error:', err);
+            }
+        }
+    };
+
+    const handleBookmark = async () => {
+        if (!currentUser || !id) {
+            alert("Kaydetmek için giriş yapmalısınız.");
+            return;
+        }
+        const result = await analyticsService.toggleBookmark(id, currentUser.uid);
+        setIsBookmarked(result);
     };
 
     const handleComment = async (e: React.FormEvent) => {
@@ -193,11 +231,22 @@ export default function ArticleDetail() {
                             {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
                         </button>
                         <div className="w-px h-6 bg-slate-200 dark:bg-slate-800 mx-1" />
-                        <button className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
+                        <button
+                            onClick={handleShare}
+                            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-brand-purple"
+                        >
                             <Share2 className="w-5 h-5" />
                         </button>
-                        <button className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
-                            <BookMarked className="w-5 h-5" />
+                        <button
+                            onClick={handleBookmark}
+                            className={cn(
+                                "p-2 rounded-lg transition-colors",
+                                isBookmarked
+                                    ? "bg-brand-purple/10 text-brand-purple"
+                                    : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-brand-purple"
+                            )}
+                        >
+                            <BookMarked className={cn("w-5 h-5", isBookmarked && "fill-current")} />
                         </button>
                     </div>
                 </div>
