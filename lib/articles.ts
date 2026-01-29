@@ -28,6 +28,23 @@ export const articleService = {
         return null;
     },
 
+    async getByIds(ids: string[]) {
+        if (!ids.length) return [];
+
+        // Firestore 'in' queries are limited to 30 items
+        // We fetch them in chunks if there are more
+        const articles: Article[] = [];
+        for (let i = 0; i < ids.length; i += 30) {
+            const chunk = ids.slice(i, i + 30);
+            const q = query(collection(db, COLLECTION_NAME), where("__name__", "in", chunk));
+            const snapshot = await getDocs(q);
+            articles.push(...snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Article[]);
+        }
+
+        // Return in the same order as IDs (which is 'recent' from bookmarks)
+        return ids.map(id => articles.find(a => a.id === id)).filter(Boolean) as Article[];
+    },
+
     async getAll(maxCount = 50) {
         try {
             console.log("Firestore: getAll starting for collection", COLLECTION_NAME);

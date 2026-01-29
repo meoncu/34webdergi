@@ -175,5 +175,15 @@ export const analyticsService = {
         );
         const snapshot = await getDocs(q);
         return !snapshot.empty;
+    },
+
+    async getUserBookmarks(userId: string) {
+        const q = query(
+            collection(db, "bookmarks"),
+            where("userId", "==", userId),
+            orderBy("createdAt", "desc")
+        );
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(doc => doc.data().articleId) as string[];
     }
 };

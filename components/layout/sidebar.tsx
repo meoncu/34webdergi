@@ -10,6 +10,7 @@ import {
     Settings,
     Users,
     BookOpen,
+    BookMarked,
     Search,
     LogOut,
     ChevronRight,
@@ -26,6 +27,7 @@ const menuItems = [
     {
         group: "MENÜ", items: [
             { name: "Panel", icon: LayoutDashboard, href: "/" },
+            { name: "Kaydedilenler", icon: BookMarked, href: "/bookmarks" },
         ]
     },
     {
