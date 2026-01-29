@@ -24,6 +24,7 @@ import { signOut, onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { userService } from "@/lib/user";
 
 const menuItems = [
     {
@@ -52,10 +53,17 @@ export function Sidebar() {
     }, [pathname]);
 
     const [user, setUser] = useState<any>(null);
+    const [userRole, setUserRole] = useState<string | null>(null);
 
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (u) => {
+        const unsubscribe = onAuthStateChanged(auth, async (u) => {
             setUser(u);
+            if (u) {
+                const userData = await userService.getUser(u.uid);
+                setUserRole(userData?.role || 'user');
+            } else {
+                setUserRole(null);
+            }
         });
         return () => unsubscribe();
     }, []);
@@ -109,38 +117,43 @@ export function Sidebar() {
                 </div>
 
                 <nav className="flex-1 px-4 space-y-8 overflow-y-auto">
-                    {menuItems.map((group) => (
-                        <div key={group.group}>
-                            <h3 className="px-4 text-[10px] font-bold text-slate-400 tracking-wider mb-4">
-                                {group.group}
-                            </h3>
-                            <div className="space-y-1">
-                                {group.items.map((item) => {
-                                    const isActive = pathname === item.href;
-                                    return (
-                                        <Link
-                                            key={item.name}
-                                            href={item.href}
-                                            className={cn(
-                                                "flex items-center justify-between px-4 py-2.5 rounded-xl transition-all duration-200 group",
-                                                isActive
-                                                    ? "bg-brand-purple/5 text-brand-purple"
-                                                    : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
-                                            )}
-                                        >
-                                            <div className="flex items-center gap-3">
-                                                <item.icon className={cn("w-5 h-5", isActive ? "text-brand-purple" : "text-slate-400 group-hover:text-slate-600")} />
-                                                <span className="text-sm font-medium">{item.name}</span>
-                                            </div>
-                                            {group.group === "YÖNETİM" && (
-                                                <ChevronRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                            )}
-                                        </Link>
-                                    );
-                                })}
+                    {menuItems.map((group) => {
+                        // Admin olmayanlara Yönetim grubunu gösterme
+                        if (group.group === "YÖNETİM" && userRole !== 'admin') return null;
+
+                        return (
+                            <div key={group.group}>
+                                <h3 className="px-4 text-[10px] font-bold text-slate-400 tracking-wider mb-4">
+                                    {group.group}
+                                </h3>
+                                <div className="space-y-1">
+                                    {group.items.map((item) => {
+                                        const isActive = pathname === item.href;
+                                        return (
+                                            <Link
+                                                key={item.name}
+                                                href={item.href}
+                                                className={cn(
+                                                    "flex items-center justify-between px-4 py-2.5 rounded-xl transition-all duration-200 group",
+                                                    isActive
+                                                        ? "bg-brand-purple/5 text-brand-purple"
+                                                        : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                                                )}
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <item.icon className={cn("w-5 h-5", isActive ? "text-brand-purple" : "text-slate-400 group-hover:text-slate-600")} />
+                                                    <span className="text-sm font-medium">{item.name}</span>
+                                                </div>
+                                                {group.group === "YÖNETİM" && (
+                                                    <ChevronRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                )}
+                                            </Link>
+                                        );
+                                    })}
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </nav>
 
                 <div className="p-4 border-t border-slate-100 space-y-2">

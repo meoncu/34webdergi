@@ -21,8 +21,12 @@ import { analyticsService } from "@/lib/analytics";
 import { userService } from "@/lib/user";
 import { Activity, User } from "@/types";
 import Link from "next/link";
+import { auth } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { useRouter } from "next/navigation";
 
 export default function AnalyticsDashboard() {
+    const router = useRouter();
     const [activities, setActivities] = useState<Activity[]>([]);
     const [users, setUsers] = useState<User[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -35,6 +39,21 @@ export default function AnalyticsDashboard() {
     const [isFetchingUserActs, setIsFetchingUserActs] = useState(false);
 
     useEffect(() => {
+        const checkAuth = async () => {
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    const userData = await userService.getUser(user.uid);
+                    if (userData?.role !== 'admin') {
+                        router.push("/");
+                    } else {
+                        fetchData();
+                    }
+                } else {
+                    router.push("/login");
+                }
+            });
+        };
+
         const fetchData = async () => {
             setIsLoading(true);
             try {
@@ -50,7 +69,8 @@ export default function AnalyticsDashboard() {
                 setIsLoading(false);
             }
         };
-        fetchData();
+
+        checkAuth();
     }, []);
 
     const handleUserDetail = async (user: User) => {
