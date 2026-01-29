@@ -111,20 +111,28 @@ export const analyticsService = {
 
     // Comments
     async addComment(comment: Omit<Comment, "id" | "createdAt">, userEmail: string, articleTitle: string) {
-        const res = await addDoc(collection(db, COMMENTS_COL), {
-            ...comment,
-            createdAt: serverTimestamp()
-        });
-        await this.logActivity({
-            type: 'comment',
-            userId: comment.userId,
-            userName: comment.userName,
-            userEmail,
-            articleId: comment.articleId,
-            articleTitle,
-            content: comment.text
-        });
-        return res.id;
+        try {
+            const res = await addDoc(collection(db, COMMENTS_COL), {
+                ...comment,
+                createdAt: serverTimestamp()
+            });
+
+            // Log as activity in the background
+            this.logActivity({
+                type: 'comment',
+                userId: comment.userId,
+                userName: comment.userName,
+                userEmail,
+                articleId: comment.articleId,
+                articleTitle,
+                content: comment.text
+            }).catch(e => console.error("Activity log failed:", e));
+
+            return res.id;
+        } catch (error) {
+            console.error("Add comment firestore error:", error);
+            throw error;
+        }
     },
 
     async getComments(articleId: string) {
