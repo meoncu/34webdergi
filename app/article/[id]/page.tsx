@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { articleService } from "@/lib/articles";
 import { analyticsService } from "@/lib/analytics";
 import { auth } from "@/lib/firebase";
@@ -53,11 +53,15 @@ export default function ArticleDetail() {
     // TTS States
     const [isSpeaking, setIsSpeaking] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
+    const [playbackRate, setPlaybackRate] = useState(1.0);
     const [utterance, setUtterance] = useState<SpeechSynthesisUtterance | null>(null);
+    const [isManualStop, setIsManualStop] = useState(false);
 
     const params = useParams();
     const router = useRouter();
+    const searchParams = useSearchParams();
     const id = params?.id as string;
+    const isAutoplay = searchParams?.get('autoplay') === 'true';
 
     // Auth monitor
     useEffect(() => {
@@ -119,6 +123,9 @@ export default function ArticleDetail() {
                             articleTitle: data.baslik
                         });
                     }
+
+                    // Store next article ID in a ref-like way for the TTS end handler
+                    // (But we already have nextArticle state)
                 }
             } catch (error) {
                 console.error("Fetch article error:", error);
@@ -128,6 +135,24 @@ export default function ArticleDetail() {
         };
         if (id) fetchArticle();
     }, [id, currentUser]);
+
+    // Handle Auto-play on mount
+    useEffect(() => {
+        if (!isLoading && article && isAutoplay) {
+            const timer = setTimeout(() => {
+                // Check if voices are ready
+                const voices = window.speechSynthesis.getVoices();
+                if (voices.length > 0) {
+                    handleSpeech();
+                } else {
+                    // Try again in a bit if voices are still loading
+                    const retryTimer = setTimeout(handleSpeech, 500);
+                    return () => clearTimeout(retryTimer);
+                }
+            }, 800);
+            return () => clearTimeout(timer);
+        }
+    }, [isLoading, id, isAutoplay]); // Trigger when ID changes or loading finishes
 
     const handleRefresh = async () => {
         if (!id || !article?.kaynakURL || isRefreshing) return;
@@ -171,8 +196,10 @@ export default function ArticleDetail() {
     };
 
     const handleSpeech = () => {
+        setIsManualStop(false);
         if (!article) return;
 
+        // If currently speaking, handle pause/resume
         if (isSpeaking && !isPaused) {
             window.speechSynthesis.pause();
             setIsPaused(true);
@@ -185,42 +212,80 @@ export default function ArticleDetail() {
             return;
         }
 
-        // Start from scratch
+        // --- Start a fresh speech session ---
+        
+        // Cancel any ongoing speech
         window.speechSynthesis.cancel();
         
-        const plainText = `${article.baslik}. Yazar: ${article.yazarAdi}. ${stripHtml(article.icerikHTML || article.icerikText)}`;
-        const newUtterance = new SpeechSynthesisUtterance(plainText);
+        const fullText = `${article.baslik}. Yazar: ${article.yazarAdi}. ${stripHtml(article.icerikHTML || article.icerikText)}`;
         
-        // Find Turkish voice
-        const voices = window.speechSynthesis.getVoices();
-        const trVoice = voices.find(v => v.lang.startsWith('tr'));
-        if (trVoice) newUtterance.voice = trVoice;
-        
-        newUtterance.lang = 'tr-TR';
-        newUtterance.rate = 1.0;
-        newUtterance.pitch = 1.0;
+        // Split text into manageable chunks (approx 200-300 chars, preferably at boundaries)
+        // This prevents the common browser issue where long text stops playing or throws errors.
+        const chunks = fullText.match(/.{1,250}(\s|$)|.{1,250}/g) || [fullText];
+        let currentChunkIndex = 0;
 
-        newUtterance.onstart = () => {
-            setIsSpeaking(true);
-            setIsPaused(false);
+        const speakChunk = (index: number) => {
+            if (index >= chunks.length) {
+                setIsSpeaking(false);
+                setIsPaused(false);
+                
+                // End of entire article reached - check for auto-advance
+                if (!isManualStop && nextArticle) {
+                    router.push(`/article/${nextArticle.id}?autoplay=true`);
+                }
+                return;
+            }
+
+            const chunk = chunks[index].trim();
+            if (!chunk) {
+                speakChunk(index + 1);
+                return;
+            }
+
+            const newUtterance = new SpeechSynthesisUtterance(chunk);
+            
+            // Find Turkish voice
+            const voices = window.speechSynthesis.getVoices();
+            const trVoice = voices.find(v => v.lang.startsWith('tr') || v.lang.startsWith('TR'));
+            if (trVoice) newUtterance.voice = trVoice;
+            
+            newUtterance.lang = 'tr-TR';
+            newUtterance.rate = playbackRate;
+            newUtterance.pitch = 1.0;
+
+            newUtterance.onstart = () => {
+                setIsSpeaking(true);
+                setIsPaused(false);
+                currentChunkIndex = index;
+            };
+
+            newUtterance.onend = () => {
+                // If not manually stopped, proceed to next chunk
+                if (!isManualStop) {
+                    speakChunk(index + 1);
+                }
+            };
+
+            newUtterance.onerror = (event: any) => {
+                // 'interrupted' is normal when calling cancel() or change rate
+                if (event.error === 'interrupted' || event.error === 'canceled' || isManualStop) {
+                    return;
+                }
+                
+                console.error("Speech error detail:", event.error, event);
+                setIsSpeaking(false);
+                setIsPaused(false);
+            };
+
+            window.speechSynthesis.speak(newUtterance);
         };
 
-        newUtterance.onend = () => {
-            setIsSpeaking(false);
-            setIsPaused(false);
-        };
-
-        newUtterance.onerror = (event) => {
-            console.error("Speech error:", event);
-            setIsSpeaking(false);
-            setIsPaused(false);
-        };
-
-        setUtterance(newUtterance);
-        window.speechSynthesis.speak(newUtterance);
+        // Start the first chunk
+        speakChunk(0);
     };
 
     const stopSpeech = () => {
+        setIsManualStop(true);
         window.speechSynthesis.cancel();
         setIsSpeaking(false);
         setIsPaused(false);
@@ -366,21 +431,47 @@ export default function ArticleDetail() {
                     </div>
 
                     <div className="flex items-center gap-2 sm:gap-4">
-                        <button
-                            onClick={handleSpeech}
-                            className={cn(
-                                "flex items-center gap-2 px-3 py-1.5 rounded-full transition-all border",
-                                isSpeaking 
-                                    ? "bg-brand-purple text-white border-brand-purple animate-pulse" 
-                                    : "bg-white dark:bg-slate-900 text-slate-600 border-slate-200 dark:border-slate-800 hover:text-brand-purple hover:border-brand-purple"
+                        <div className="flex items-center gap-1">
+                            <button
+                                onClick={handleSpeech}
+                                className={cn(
+                                    "flex items-center gap-2 px-3 py-1.5 rounded-full transition-all border",
+                                    isSpeaking 
+                                        ? "bg-brand-purple text-white border-brand-purple shadow-lg shadow-brand-purple/20" 
+                                        : "bg-white dark:bg-slate-900 text-slate-600 border-slate-200 dark:border-slate-800 hover:text-brand-purple hover:border-brand-purple"
+                                )}
+                                title={isSpeaking ? (isPaused ? "Devam Et" : "Duraklat") : "Sesli Dinle"}
+                            >
+                                {isPaused || !isSpeaking ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                                <span className="text-[10px] font-black uppercase tracking-widest hidden lg:inline">
+                                    {isSpeaking ? (isPaused ? "Duraklatıldı" : "Dinleniyor") : "Dinle"}
+                                </span>
+                            </button>
+
+                            {isSpeaking && (
+                                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-full px-1.5 py-1 ml-1">
+                                    {[1, 1.25, 1.5, 2].map(rate => (
+                                        <button 
+                                            key={rate}
+                                            onClick={() => {
+                                                setPlaybackRate(rate);
+                                                // Restart to apply rate immediately (simplest way)
+                                                window.speechSynthesis.cancel();
+                                                setTimeout(handleSpeech, 100);
+                                            }}
+                                            className={cn(
+                                                "text-[9px] font-black px-1.5 py-0.5 rounded-md transition-all",
+                                                playbackRate === rate 
+                                                    ? "bg-white dark:bg-slate-700 text-brand-purple shadow-sm scale-110" 
+                                                    : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                                            )}
+                                        >
+                                            {rate}x
+                                        </button>
+                                    ))}
+                                </div>
                             )}
-                            title={isSpeaking ? (isPaused ? "Devam Et" : "Duraklat") : "Sesli Dinle"}
-                        >
-                            {isPaused || !isSpeaking ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-                            <span className="text-[10px] font-black uppercase tracking-widest hidden lg:inline">
-                                {isSpeaking ? (isPaused ? "Duraklatıldı" : "Dinleniyor") : "Dinle"}
-                            </span>
-                        </button>
+                        </div>
 
                         {isSpeaking && (
                             <button
@@ -603,7 +694,12 @@ export default function ArticleDetail() {
                     )}
 
                     {nextArticle ? (
-                        <Link href={`/article/${nextArticle.id}`} className="group p-6 rounded-3xl border border-slate-200 dark:border-slate-800 hover:border-brand-purple transition-all text-right">
+                        <Link 
+                            id="next-article-id"
+                            data-id={nextArticle.id}
+                            href={`/article/${nextArticle.id}${isAutoplay ? '?autoplay=true' : ''}`} 
+                            className="group p-6 rounded-3xl border border-slate-200 dark:border-slate-800 hover:border-brand-purple transition-all text-right"
+                        >
                             <div className="flex items-center justify-end gap-2 text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest">
                                 Sonraki Yazı <ChevronRight className="w-4 h-4 text-brand-purple" />
                             </div>
@@ -626,14 +722,22 @@ export default function ArticleDetail() {
             </article>
 
             {/* Floating Action Menu for Mobile */}
-            <div className="fixed bottom-8 right-8 flex flex-col gap-3">
+            <div className="fixed bottom-8 right-8 flex flex-col gap-3 group">
                 {isSpeaking && (
-                    <button 
-                        onClick={handleSpeech}
-                        className="w-14 h-14 bg-brand-purple text-white rounded-full shadow-2xl flex items-center justify-center animate-bounce-subtle"
-                    >
-                        {isPaused ? <Play className="w-6 h-6" /> : <Pause className="w-6 h-6" />}
-                    </button>
+                    <>
+                        <button 
+                            onClick={stopSpeech}
+                            className="w-12 h-12 bg-red-500 text-white rounded-full shadow-xl flex items-center justify-center hover:bg-red-600 transition-all scale-90"
+                        >
+                            <Square className="w-5 h-5 fill-current" />
+                        </button>
+                        <button 
+                            onClick={handleSpeech}
+                            className="w-14 h-14 bg-brand-purple text-white rounded-full shadow-2xl flex items-center justify-center animate-bounce-subtle"
+                        >
+                            {isPaused ? <Play className="w-6 h-6" /> : <Pause className="w-6 h-6" />}
+                        </button>
+                    </>
                 )}
                 {!isSpeaking && (
                     <button 
