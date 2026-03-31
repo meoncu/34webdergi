@@ -14,7 +14,12 @@ import {
     ChevronLeft,
     ChevronRight,
     Loader2,
-    RefreshCw
+    RefreshCw,
+    Volume2,
+    VolumeX,
+    Play,
+    Pause,
+    Square
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -42,6 +47,13 @@ export default function ArticleDetail() {
     const [newComment, setNewComment] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
+    const [prevArticle, setPrevArticle] = useState<Article | null>(null);
+    const [nextArticle, setNextArticle] = useState<Article | null>(null);
+
+    // TTS States
+    const [isSpeaking, setIsSpeaking] = useState(false);
+    const [isPaused, setIsPaused] = useState(false);
+    const [utterance, setUtterance] = useState<SpeechSynthesisUtterance | null>(null);
 
     const params = useParams();
     const router = useRouter();
@@ -59,6 +71,12 @@ export default function ArticleDetail() {
     useEffect(() => {
         const fetchArticle = async () => {
             if (!id) return;
+            // Stop speech when changing articles
+            if (window.speechSynthesis) {
+                window.speechSynthesis.cancel();
+                setIsSpeaking(false);
+                setIsPaused(false);
+            }
             try {
                 const data = await articleService.getById(id);
                 if (data) {
@@ -73,6 +91,14 @@ export default function ArticleDetail() {
                     setReadCount(rc);
                     setLikeCount(lc);
                     setComments(comms);
+
+                    // Fetch next/prev articles
+                    const periodArticles = await articleService.getByPeriod(data.yil, data.ay);
+                    const currentIndex = periodArticles.findIndex(a => a.id === id);
+                    if (currentIndex !== -1) {
+                        setPrevArticle(currentIndex > 0 ? periodArticles[currentIndex - 1] : null);
+                        setNextArticle(currentIndex < periodArticles.length - 1 ? periodArticles[currentIndex + 1] : null);
+                    }
 
                     // User specific
                     if (currentUser) {
@@ -128,6 +154,78 @@ export default function ArticleDetail() {
             setIsRefreshing(false);
         }
     };
+
+    // --- Speech Synthesis Logic ---
+    useEffect(() => {
+        return () => {
+            if (window.speechSynthesis) {
+                window.speechSynthesis.cancel();
+            }
+        };
+    }, []);
+
+    const stripHtml = (html: string) => {
+        const tmp = document.createElement("DIV");
+        tmp.innerHTML = html;
+        return tmp.textContent || tmp.innerText || "";
+    };
+
+    const handleSpeech = () => {
+        if (!article) return;
+
+        if (isSpeaking && !isPaused) {
+            window.speechSynthesis.pause();
+            setIsPaused(true);
+            return;
+        }
+
+        if (isSpeaking && isPaused) {
+            window.speechSynthesis.resume();
+            setIsPaused(false);
+            return;
+        }
+
+        // Start from scratch
+        window.speechSynthesis.cancel();
+        
+        const plainText = `${article.baslik}. Yazar: ${article.yazarAdi}. ${stripHtml(article.icerikHTML || article.icerikText)}`;
+        const newUtterance = new SpeechSynthesisUtterance(plainText);
+        
+        // Find Turkish voice
+        const voices = window.speechSynthesis.getVoices();
+        const trVoice = voices.find(v => v.lang.startsWith('tr'));
+        if (trVoice) newUtterance.voice = trVoice;
+        
+        newUtterance.lang = 'tr-TR';
+        newUtterance.rate = 1.0;
+        newUtterance.pitch = 1.0;
+
+        newUtterance.onstart = () => {
+            setIsSpeaking(true);
+            setIsPaused(false);
+        };
+
+        newUtterance.onend = () => {
+            setIsSpeaking(false);
+            setIsPaused(false);
+        };
+
+        newUtterance.onerror = (event) => {
+            console.error("Speech error:", event);
+            setIsSpeaking(false);
+            setIsPaused(false);
+        };
+
+        setUtterance(newUtterance);
+        window.speechSynthesis.speak(newUtterance);
+    };
+
+    const stopSpeech = () => {
+        window.speechSynthesis.cancel();
+        setIsSpeaking(false);
+        setIsPaused(false);
+    };
+    // ----------------------------
 
     const handleLike = async () => {
         if (!currentUser || !article || !id) return;
@@ -239,13 +337,63 @@ export default function ArticleDetail() {
                 isDarkMode ? "bg-slate-950/80 border-slate-800" : "bg-white/80 border-slate-200"
             )}>
                 <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
-                    <Link href="/" className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-brand-purple transition-colors">
-                        <ArrowLeft className="w-4 h-4" />
-                        <span className="hidden sm:inline">Geri Dön</span>
-                    </Link>
+                    <div className="flex items-center gap-4">
+                        <Link href="/" className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-brand-purple transition-colors">
+                            <ArrowLeft className="w-4 h-4" />
+                            <span className="hidden sm:inline">Geri Dön</span>
+                        </Link>
+                        
+                        <div className="hidden md:flex items-center gap-1">
+                            {prevArticle && (
+                                <Link 
+                                    href={`/article/${prevArticle.id}`} 
+                                    className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-brand-purple transition-colors"
+                                    title={`Önceki: ${prevArticle.baslik}`}
+                                >
+                                    <ChevronLeft className="w-5 h-5" />
+                                </Link>
+                            )}
+                            {nextArticle && (
+                                <Link 
+                                    href={`/article/${nextArticle.id}`} 
+                                    className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-brand-purple transition-colors"
+                                    title={`Sonraki: ${nextArticle.baslik}`}
+                                >
+                                    <ChevronRight className="w-5 h-5" />
+                                </Link>
+                            )}
+                        </div>
+                    </div>
 
                     <div className="flex items-center gap-2 sm:gap-4">
-                        {/* Refresh Button (Only show for authors or admins if possible, though currently public) */}
+                        <button
+                            onClick={handleSpeech}
+                            className={cn(
+                                "flex items-center gap-2 px-3 py-1.5 rounded-full transition-all border",
+                                isSpeaking 
+                                    ? "bg-brand-purple text-white border-brand-purple animate-pulse" 
+                                    : "bg-white dark:bg-slate-900 text-slate-600 border-slate-200 dark:border-slate-800 hover:text-brand-purple hover:border-brand-purple"
+                            )}
+                            title={isSpeaking ? (isPaused ? "Devam Et" : "Duraklat") : "Sesli Dinle"}
+                        >
+                            {isPaused || !isSpeaking ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                            <span className="text-[10px] font-black uppercase tracking-widest hidden lg:inline">
+                                {isSpeaking ? (isPaused ? "Duraklatıldı" : "Dinleniyor") : "Dinle"}
+                            </span>
+                        </button>
+
+                        {isSpeaking && (
+                            <button
+                                onClick={stopSpeech}
+                                className="p-2 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg text-red-500 transition-colors"
+                                title="Durdur"
+                            >
+                                <Square className="w-4 h-4 fill-current" />
+                            </button>
+                        )}
+
+                        <div className="w-px h-6 bg-slate-200 dark:bg-slate-800 mx-1" />
+                        
                         <button
                             onClick={handleRefresh}
                             disabled={isRefreshing}
@@ -437,28 +585,65 @@ export default function ArticleDetail() {
 
                 {/* Footer Navigation */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pb-20">
-                    <Link href="/" className="group p-6 rounded-3xl border border-slate-200 dark:border-slate-800 hover:border-brand-purple transition-all text-left">
-                        <div className="flex items-center gap-2 text-xs font-bold text-slate-400 mb-2">
-                            <ChevronLeft className="w-4 h-4" /> ANA SAYFA
-                        </div>
-                        <p className="font-bold group-hover:text-brand-purple transition-colors">Diğer yazılara göz atın</p>
-                    </Link>
+                    {prevArticle ? (
+                        <Link href={`/article/${prevArticle.id}`} className="group p-6 rounded-3xl border border-slate-200 dark:border-slate-800 hover:border-brand-purple transition-all text-left">
+                            <div className="flex items-center gap-2 text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest">
+                                <ChevronLeft className="w-4 h-4 text-brand-purple" /> Önceki Yazı
+                            </div>
+                            <p className="font-bold group-hover:text-brand-purple transition-colors line-clamp-2 leading-snug">{prevArticle.baslik}</p>
+                            <p className="text-[10px] font-bold text-slate-400 mt-2 uppercase">{prevArticle.yazarAdi}</p>
+                        </Link>
+                    ) : (
+                        <Link href="/" className="group p-6 rounded-3xl border border-slate-200 dark:border-slate-800 hover:border-brand-purple transition-all text-left">
+                            <div className="flex items-center gap-2 text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest">
+                                <ChevronLeft className="w-4 h-4 text-brand-purple" /> Arşive Dön
+                            </div>
+                            <p className="font-bold group-hover:text-brand-purple transition-colors">Tüm yazılara göz atın</p>
+                        </Link>
+                    )}
 
-                    <button
-                        onClick={() => window.open(article.kaynakURL, '_blank')}
-                        className="group p-6 rounded-3xl border border-slate-200 dark:border-slate-800 hover:border-brand-purple transition-all text-right"
-                    >
-                        <div className="flex items-center justify-end gap-2 text-xs font-bold text-slate-400 mb-2">
-                            KAYNAĞA GİT <ChevronRight className="w-4 h-4" />
-                        </div>
-                        <p className="font-bold group-hover:text-brand-purple transition-colors">Orijinal metni görüntüle</p>
-                    </button>
+                    {nextArticle ? (
+                        <Link href={`/article/${nextArticle.id}`} className="group p-6 rounded-3xl border border-slate-200 dark:border-slate-800 hover:border-brand-purple transition-all text-right">
+                            <div className="flex items-center justify-end gap-2 text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest">
+                                Sonraki Yazı <ChevronRight className="w-4 h-4 text-brand-purple" />
+                            </div>
+                            <p className="font-bold group-hover:text-brand-purple transition-colors line-clamp-2 leading-snug">{nextArticle.baslik}</p>
+                            <p className="text-[10px] font-bold text-slate-400 mt-2 uppercase">{nextArticle.yazarAdi}</p>
+                        </Link>
+                    ) : (
+                        <button
+                            onClick={() => window.open(article.kaynakURL, '_blank')}
+                            className="group p-6 rounded-3xl border border-slate-200 dark:border-slate-800 hover:border-brand-purple transition-all text-right"
+                        >
+                            <div className="flex items-center justify-end gap-2 text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest">
+                                Kaynağa Git <ChevronRight className="w-4 h-4 text-brand-purple" />
+                            </div>
+                            <p className="font-bold group-hover:text-brand-purple transition-colors">Orijinal metni görüntüle</p>
+                            <p className="text-[10px] font-bold text-slate-400 mt-2 uppercase">altinoluk.com.tr</p>
+                        </button>
+                    )}
                 </div>
             </article>
 
             {/* Floating Action Menu for Mobile */}
-            <div className="fixed bottom-8 right-8 flex flex-col gap-3 sm:hidden">
-                <button className="w-12 h-12 bg-slate-900 text-white rounded-full shadow-2xl flex items-center justify-center">
+            <div className="fixed bottom-8 right-8 flex flex-col gap-3">
+                {isSpeaking && (
+                    <button 
+                        onClick={handleSpeech}
+                        className="w-14 h-14 bg-brand-purple text-white rounded-full shadow-2xl flex items-center justify-center animate-bounce-subtle"
+                    >
+                        {isPaused ? <Play className="w-6 h-6" /> : <Pause className="w-6 h-6" />}
+                    </button>
+                )}
+                {!isSpeaking && (
+                    <button 
+                        onClick={handleSpeech}
+                        className="w-14 h-14 bg-slate-900 text-white rounded-full shadow-2xl flex items-center justify-center hover:bg-brand-purple transition-colors"
+                    >
+                        <Volume2 className="w-6 h-6" />
+                    </button>
+                )}
+                <button className="w-12 h-12 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-full shadow-xl flex items-center justify-center border border-slate-200 dark:border-slate-700 sm:hidden">
                     <Printer className="w-5 h-5" />
                 </button>
             </div>
