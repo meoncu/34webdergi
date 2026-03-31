@@ -24,22 +24,17 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [availableStats, setAvailableStats] = useState<Record<number, Record<string, { count: number; chars: number; words: number }>>>({});
 
-  // State initialization with sessionStorage check
-  const [selectedYear, setSelectedYear] = useState<number>(() => {
-    if (typeof window !== "undefined") {
-      const saved = sessionStorage.getItem("selectedYear");
-      if (saved) return Number(saved);
-    }
-    return new Date().getFullYear();
-  });
+  // State initialization with consistent defaults for SSR
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<string>(MONTH_ORDER[new Date().getMonth()]);
 
-  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
-    if (typeof window !== "undefined") {
-      const saved = sessionStorage.getItem("selectedMonth");
-      if (saved) return saved;
-    }
-    return MONTH_ORDER[new Date().getMonth()];
-  });
+  // Handle client-side hydration for persisted settings
+  useEffect(() => {
+    const savedYear = sessionStorage.getItem("selectedYear");
+    const savedMonth = sessionStorage.getItem("selectedMonth");
+    if (savedYear) setSelectedYear(Number(savedYear));
+    if (savedMonth) setSelectedMonth(savedMonth);
+  }, []);
 
   // Save selection when it changes
   useEffect(() => {
