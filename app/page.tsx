@@ -22,10 +22,11 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [availableStats, setAvailableStats] = useState<Record<number, Record<string, { count: number; chars: number; words: number }>>>({});
 
-  const [selectedYear, setSelectedYear] = useState<number>(2026);
-  const [selectedMonth, setSelectedMonth] = useState<string>("Ocak");
+  const now = new Date();
+  const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<string>(["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"][now.getMonth()]);
 
-  // İlk yüklemede hafızadan getir
+  // Hafızadan sadece seçim değiştiğinde oku/yaz
   useEffect(() => {
     const savedYear = sessionStorage.getItem("selectedYear");
     const savedMonth = sessionStorage.getItem("selectedMonth");
@@ -33,30 +34,32 @@ export default function Dashboard() {
     if (savedMonth) setSelectedMonth(savedMonth);
   }, []);
 
-  // Seçim değiştikçe hafızaya kaydet
   useEffect(() => {
     sessionStorage.setItem("selectedYear", selectedYear.toString());
     sessionStorage.setItem("selectedMonth", selectedMonth);
   }, [selectedYear, selectedMonth]);
 
-  // Mevcut yıl/ay listesini getir
+  // Mevcut yıl/ay listesini getir ve EN GÜNCELİ bul
   useEffect(() => {
     const fetchStats = async () => {
       try {
         const stats = await articleService.getStats();
         setAvailableStats(stats);
 
-        // Sadece hafızada kayıt yoksa en güncel yılı seç
-        const savedYear = sessionStorage.getItem("selectedYear");
-        if (!savedYear) {
-          const years = Object.keys(stats).map(Number).sort((a, b) => b - a);
-          if (years.length > 0) {
-            const latestYear = years[0];
+        const years = Object.keys(stats).map(Number).sort((a, b) => b - a);
+        if (years.length > 0) {
+          const latestYear = years[0];
+          const monthOrder = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+          const availableMonths = Object.keys(stats[latestYear]).sort((a, b) => {
+            return monthOrder.indexOf(b) - monthOrder.indexOf(a);
+          });
+
+          // Kullanıcıyı bir defaya mahsus en güncel dergiye yönlendir (eski hafıza kaydını temizler)
+          const isForced = sessionStorage.getItem("forced_latest_v2");
+          if (!isForced && availableMonths.length > 0) {
             setSelectedYear(latestYear);
-            const months = Object.keys(stats[latestYear]);
-            if (months.length > 0) {
-              setSelectedMonth(months[0]);
-            }
+            setSelectedMonth(availableMonths[0]);
+            sessionStorage.setItem("forced_latest_v2", "true");
           }
         }
       } catch (error) {
@@ -85,7 +88,10 @@ export default function Dashboard() {
   }, [selectedYear, selectedMonth]);
 
   const years = Object.keys(availableStats).map(Number).sort((a, b) => b - a);
-  const months = availableStats[selectedYear] ? Object.keys(availableStats[selectedYear]) : [];
+  const monthOrder = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+  const months = availableStats[selectedYear] 
+    ? Object.keys(availableStats[selectedYear]).sort((a, b) => monthOrder.indexOf(b) - monthOrder.indexOf(a)) 
+    : [];
 
   // Yıl değiştiğinde seçili ayın geçerliliğini kontrol et
   useEffect(() => {

@@ -1,6 +1,7 @@
 
 export interface Article {
     id?: string;
+    siraNo?: number;
     dergiSayisi: string;
     yil: number;
     ay: string;

@@ -1,21 +1,48 @@
 {
-    "name": "Dergi Arşivi",
-    "short_name": "DergiArsiv",
-    "description": "Modern, güvenli ve hızlı dergi/makale arşiv uygulaması.",
-    "start_url": "/",
+    "name": "Altınoluk Dijital Arşiv",
+    "short_name": "Altınoluk",
+    "description": "Altınoluk dergi ve makale arşivi. Modern, hızlı ve okunaklı dijital kütüphane.",
+    "id": "/",
+    "start_url": "/?pwa=true",
     "display": "standalone",
-    "background_color": "#ffffff",
+    "scope": "/",
+    "orientation": "portrait",
+    "background_color": "#f8fafc",
     "theme_color": "#8b5cf6",
+    "categories": ["education", "news", "lifestyle"],
     "icons": [
         {
-            "src": "https://ui-avatars.com/api/?name=P&background=8b5cf6&color=fff&size=192",
+            "src": "https://ui-avatars.com/api/?name=A&background=8b5cf6&color=fff&size=192&bold=true",
             "sizes": "192x192",
-            "type": "image/png"
+            "type": "image/png",
+            "purpose": "any"
         },
         {
-            "src": "https://ui-avatars.com/api/?name=P&background=8b5cf6&color=fff&size=512",
+            "src": "https://ui-avatars.com/api/?name=A&background=8b5cf6&color=fff&size=512&bold=true",
             "sizes": "512x512",
-            "type": "image/png"
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "https://ui-avatars.com/api/?name=A&background=8b5cf6&color=fff&size=192&background=8b5cf6&color=fff&bold=true&rounded=false",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "https://ui-avatars.com/api/?name=A&background=8b5cf6&color=fff&size=512&background=8b5cf6&color=fff&bold=true&rounded=false",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ],
+    "screenshots": [
+        {
+            "src": "https://via.placeholder.com/1080x1920?text=Altinoluk+Mobil",
+            "sizes": "1080x1920",
+            "type": "image/png",
+            "form_factor": "narrow",
+            "label": "Mobil Görünüm"
         }
     ]
 }

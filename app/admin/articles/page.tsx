@@ -53,25 +53,8 @@ export default function AdminArticles() {
     const [articles, setArticles] = useState<Article[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [stats, setStats] = useState<Record<number, Record<string, { count: number; chars: number; words: number }>>>({});
-    const [sessionCookie, setSessionCookie] = useState("");
-    const [forceScrape, setForceScrape] = useState(false);
 
-    // Cookie'yi localStorage'dan yükle ve kaydet
-    useEffect(() => {
-        const savedCookie = localStorage.getItem("altinoluk_session_cookie");
-        if (savedCookie) setSessionCookie(savedCookie);
 
-        const savedForce = localStorage.getItem("altinoluk_force_scrape");
-        if (savedForce === "true") setForceScrape(true);
-    }, []);
-
-    useEffect(() => {
-        localStorage.setItem("altinoluk_session_cookie", sessionCookie);
-    }, [sessionCookie]);
-
-    useEffect(() => {
-        localStorage.setItem("altinoluk_force_scrape", String(forceScrape));
-    }, [forceScrape]);
 
     useEffect(() => {
         loadData();
@@ -126,26 +109,44 @@ export default function AdminArticles() {
         try {
             let sampleArticles: Omit<Article, "id" | "olusturmaTarihi">[] = [];
 
-            // Otomatik Sayı Hesaplama (Ocak 2026 = Sayı 479 referans alınarak)
             const monthNames = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
             const monthIndex = monthNames.indexOf(syncMonth);
-            // 479 - ((2026 - Year) * 12 + (0 - MonthIndex))
-            const calculatedIssue = 479 - ((2026 - syncYear) * 12 - monthIndex);
 
-            console.log(`Searching for Issue: ${calculatedIssue} (${syncYear} ${syncMonth})`);
-
-            // Web'den o sayıdaki makaleleri keşfet
-            const issueUrl = `https://www.altinoluk.com.tr/arsiv/sayi-${calculatedIssue}`;
-            const discoverRes = await fetch(`/api/scrape?url=${encodeURIComponent(issueUrl)}&mode=issue`);
+            // ADIM 1: Arşiv sayfasından bu ay/yıl için sayı sayfasının URL'sini bul
+            console.log(`[SYNC] Arşivde aranıyor: ${syncMonth} ${syncYear}`);
+            const archiveUrl = 'https://www.altinoluk.com.tr/dergi-arsivi';
+            const discoverRes = await fetch(`/api/scrape?url=${encodeURIComponent(archiveUrl)}&mode=discover&month=${encodeURIComponent(syncMonth)}&year=${syncYear}`);
+            
+            let issuePageUrl = '';
+            let issueNumber = '';
 
             if (discoverRes.ok) {
                 const discoverData = await discoverRes.json();
-                if (discoverData.articles && discoverData.articles.length > 0) {
-                    console.log(`Found ${discoverData.articles.length} articles on web.`);
-                    sampleArticles = discoverData.articles.map((a: any) => ({
+                if (discoverData.found) {
+                    issuePageUrl = discoverData.issueUrl;
+                    issueNumber = discoverData.issueNumber || '';
+                    console.log(`[SYNC] Sayı bulundu: ${issueNumber}. Sayı → ${issuePageUrl}`);
+                }
+            }
+
+            if (!issuePageUrl) {
+                alert(`${syncYear} ${syncMonth} dönemi arşivde bulunamadı. Site henüz bu sayıyı yayınlamamış olabilir.`);
+                setIsSyncing(false);
+                return;
+            }
+
+            // ADIM 2: Sayı sayfasından makaleleri çek
+            const articlesRes = await fetch(`/api/scrape?url=${encodeURIComponent(issuePageUrl)}&mode=issue`);
+
+            if (articlesRes.ok) {
+                const articlesData = await articlesRes.json();
+                if (articlesData.articles && articlesData.articles.length > 0) {
+                    console.log(`[SYNC] ${articlesData.articles.length} makale bulundu.`);
+                    sampleArticles = articlesData.articles.map((a: any, index: number) => ({
                         baslik: a.baslik,
-                        yazarAdi: "Yükleniyor...",
-                        dergiSayisi: calculatedIssue.toString(),
+                        yazarAdi: a.yazarAdi || "Yükleniyor...",
+                        siraNo: index + 1,
+                        dergiSayisi: issueNumber,
                         yil: syncYear,
                         ay: syncMonth,
                         yayinTarihi: `${syncYear}-${(monthIndex + 1).toString().padStart(2, '0')}-01`,
@@ -156,9 +157,8 @@ export default function AdminArticles() {
                 }
             }
 
-            // Fallback (eğer web'den bulunamazsa eski sabit listeyi (sadece Ocak 2026 ise) veya hata ver)
             if (sampleArticles.length === 0) {
-                alert(`${syncYear} ${syncMonth} (Sayı: ${calculatedIssue}) dönemi için web'de makale bulunamadı.`);
+                alert(`${syncYear} ${syncMonth} (Sayı: ${issueNumber}) sayı sayfası bulundu fakat makale listesi okunamadı.`);
                 setIsSyncing(false);
                 return;
             }
@@ -168,9 +168,9 @@ export default function AdminArticles() {
 
             for (let art of sampleArticles) {
                 // Her makalenin içine girip tam metni al
-                if (forceScrape && art.kaynakURL) {
+                if (art.kaynakURL) {
                     try {
-                        const scrapeUrl = `/api/scrape?url=${encodeURIComponent(art.kaynakURL)}${sessionCookie ? `&cookie=${sessionCookie}` : ''}`;
+                        const scrapeUrl = `/api/scrape?url=${encodeURIComponent(art.kaynakURL)}`;
                         const scrapeRes = await fetch(scrapeUrl);
                         if (scrapeRes.ok) {
                             const scrapeData = await scrapeRes.json();
@@ -252,7 +252,7 @@ export default function AdminArticles() {
 
         setIsSyncing(true);
         try {
-            const scrapeUrl = `/api/scrape?url=${encodeURIComponent(editFormData.kaynakURL)}${sessionCookie ? `&cookie=${sessionCookie}` : ''}`;
+            const scrapeUrl = `/api/scrape?url=${encodeURIComponent(editFormData.kaynakURL)}`;
             const res = await fetch(scrapeUrl);
             const data = await res.json();
 
@@ -408,7 +408,18 @@ export default function AdminArticles() {
                                     className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-sm font-bold text-slate-700 outline-none focus:ring-4 focus:ring-brand-purple/5"
                                 >
                                     {["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"].map((m, idx) => {
-                                        const isFuture = syncYear === new Date().getFullYear() && idx > new Date().getMonth();
+                                        const now = new Date();
+                                        const currentYear = now.getFullYear();
+                                        const currentMonth = now.getMonth();
+                                        const currentDay = now.getDate();
+                                        const lastDayOfMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+                                        
+                                        // Son 7 gün içindeysek bir sonraki ayı "gelecekten" çıkar
+                                        const isLastWeek = currentDay > (lastDayOfMonth - 7);
+                                        const allowedMonthIdx = isLastWeek ? currentMonth + 1 : currentMonth;
+
+                                        const isFuture = syncYear > currentYear || (syncYear === currentYear && idx > allowedMonthIdx);
+                                        
                                         return (
                                             <option key={m} value={m} disabled={isFuture}>
                                                 {m} {isFuture ? "(Henüz Oluşmadı)" : ""}
@@ -419,41 +430,7 @@ export default function AdminArticles() {
                             </div>
                         </div>
 
-                        {/* Bot Configuration */}
-                        <div className="space-y-4 pt-2 border-t border-slate-100">
-                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1 flex items-center gap-1.5 pt-2">
-                                <Settings className="w-3 h-3" /> Bot Yapılandırması
-                            </label>
 
-                            <div className="flex items-center justify-between p-3 bg-white border border-slate-100 rounded-2xl">
-                                <span className="text-xs font-bold text-slate-700">Linkten Tam Metni Çek</span>
-                                <button
-                                    onClick={() => setForceScrape(!forceScrape)}
-                                    className={cn(
-                                        "w-10 h-5 rounded-full transition-colors relative",
-                                        forceScrape ? "bg-brand-purple" : "bg-slate-200"
-                                    )}
-                                >
-                                    <div className={cn(
-                                        "absolute top-1 w-3 h-3 bg-white rounded-full transition-all",
-                                        forceScrape ? "left-6" : "left-1"
-                                    )} />
-                                </button>
-                            </div>
-
-                            {forceScrape && (
-                                <div className="space-y-1.5 animate-in slide-in-from-top-2 duration-300">
-                                    <label className="text-[10px] font-bold text-slate-500 pl-1">Session Cookie (PHPSESSID veya Tüm Cookie)</label>
-                                    <input
-                                        type="text"
-                                        placeholder="Örn: abc123def456 veya PHPSESSID=abc123def456; path=/..."
-                                        value={sessionCookie}
-                                        onChange={(e) => setSessionCookie(e.target.value)}
-                                        className="w-full bg-white border border-slate-200 rounded-xl py-2 px-3 text-[10px] font-medium text-slate-700 outline-none focus:ring-4 focus:ring-brand-purple/5"
-                                    />
-                                </div>
-                            )}
-                        </div>
                     </div>
 
                     <div className="space-y-4 pt-4">
@@ -650,6 +627,14 @@ export default function AdminArticles() {
                                     const matchesMonth = filterMonth === "Tümü" || a.ay === filterMonth;
 
                                     return matchesSearch && matchesYear && matchesMonth;
+                                }).sort((a, b) => {
+                                    // Öncelikli olarak siraNo'ya göre, yoksa tarihe (yeniden eskiye) göre
+                                    if (a.siraNo !== undefined && b.siraNo !== undefined) {
+                                        return a.siraNo - b.siraNo;
+                                    }
+                                    const dateA = a.olusturmaTarihi?.toDate?.() || new Date(0);
+                                    const dateB = b.olusturmaTarihi?.toDate?.() || new Date(0);
+                                    return dateB.getTime() - dateA.getTime();
                                 }).map((article, index) => (
                                     <tr key={article.id} className="hover:bg-slate-50/80 transition-colors group">
                                         <td className="px-4 py-5 text-center text-xs font-black text-slate-300 group-hover:text-brand-purple">

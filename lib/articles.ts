@@ -59,8 +59,11 @@ export const articleService = {
                 ...doc.data()
             })) as Article[];
 
-            // Bellekte sıralama yapalım
             return docs.sort((a, b) => {
+                // Aynı dönemde iseler siraNo'ya göre sırala
+                if (a.yil === b.yil && a.ay === b.ay && a.siraNo !== undefined && b.siraNo !== undefined) {
+                    return a.siraNo - b.siraNo;
+                }
                 const dateA = a.olusturmaTarihi?.toDate?.() || new Date(0);
                 const dateB = b.olusturmaTarihi?.toDate?.() || new Date(0);
                 return dateB.getTime() - dateA.getTime();
@@ -196,6 +199,9 @@ export const articleService = {
             })) as Article[];
 
             return docs.sort((a, b) => {
+                if (a.siraNo !== undefined && b.siraNo !== undefined) {
+                    return a.siraNo - b.siraNo;
+                }
                 const dateA = a.olusturmaTarihi?.toDate?.() || new Date(0);
                 const dateB = b.olusturmaTarihi?.toDate?.() || new Date(0);
                 return dateB.getTime() - dateA.getTime();
