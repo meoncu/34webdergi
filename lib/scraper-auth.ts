@@ -35,12 +35,12 @@ export async function getAuthCookie(): Promise<string | null> {
         });
         const page = await context.newPage();
 
-        // Altınoluk giriş sayfasına git (site genellikle /giris, /login veya anasayfada form olabilir)
-        // Eğer link yanlışsa sistem ana sayfaya yönlenecektir.
-        await page.goto('https://www.altinoluk.com.tr/giris', { waitUntil: 'domcontentloaded' }).catch(() => {});
-        await page.waitForTimeout(2000); // Sayfanın kendine gelmesini bekle
+        // Altınoluk giriş sayfası ( /login artık doğrulandı )
+        console.log('Giriş sayfasına gidiliyor: https://www.altinoluk.com.tr/login');
+        await page.goto('https://www.altinoluk.com.tr/login', { waitUntil: 'domcontentloaded' }).catch(() => {});
+        await page.waitForTimeout(3000); // Sayfanın kendine gelmesini bekle
         
-        // Sayfada input alanlarını bul (kullanıcı veya email olabilir)
+        // Sayfada input alanlarını bul
         const emailInput = await page.$('input[type="email"], input[name="email"], input[id="email"], input[name="kullanici_adi"], input[name="username"]');
         const passInput = await page.$('input[type="password"], input[name="password"], input[id="password"], input[name="sifre"]');
         
@@ -53,25 +53,25 @@ export async function getAuthCookie(): Promise<string | null> {
             await passInput.press('Enter');
             console.log("Form gönderildi, giriş bekleniyor...");
             
-            // Yönlendirme veya işlemin tamamlanması için bekle
-            await page.waitForTimeout(5000); 
+            // Yönlendirme ve başarılı giriş için bekle
+            // Bekleme süresi artırıldı ve networkidle eklendi
+            await page.waitForTimeout(7000); 
         } else {
-            console.log("Giriş form alanları bulunamadı! Tarayıcıda manuel kontrol gerekebilir.");
+            console.log("Giriş form alanları bulunamadı!");
         }
         
         // Çerezleri al
         const cookies = await context.cookies();
-        const phpsessid = cookies.find(c => c.name.toLowerCase() === 'phpsessid');
         
-        if (phpsessid) {
-            cachedCookie = `PHPSESSID=${phpsessid.value}`;
-            console.log('Başarıyla PHPSESSID yakalandı:', cachedCookie.substring(0, 20) + '...');
+        // Laravel veya PHP bazlı sistemlerde session ismi değişebilir
+        // Hepsini birleştirip göndermek en güvenlisi
+        const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ');
+        
+        if (cookieStr) {
+            cachedCookie = cookieStr;
+            console.log('Başarıyla çerezler yakalandı.');
         } else {
-            console.log('PHPSESSID bulunamadı, mevcut tüm çerezler toplanıyor.');
-            const allCooks = cookies.map(c => `${c.name}=${c.value}`).join('; ');
-            if (allCooks.length > 0) {
-                cachedCookie = allCooks;
-            }
+            console.log('Çerez yakalanamadı.');
         }
         
         await browser.close();

@@ -13,7 +13,8 @@ import {
     Printer,
     ChevronLeft,
     ChevronRight,
-    Loader2
+    Loader2,
+    RefreshCw
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -40,6 +41,7 @@ export default function ArticleDetail() {
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState("");
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     const params = useParams();
     const router = useRouter();
@@ -101,6 +103,32 @@ export default function ArticleDetail() {
         if (id) fetchArticle();
     }, [id, currentUser]);
 
+    const handleRefresh = async () => {
+        if (!id || !article?.kaynakURL || isRefreshing) return;
+        
+        setIsRefreshing(true);
+        try {
+            const response = await fetch('/api/article/refresh', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, url: article.kaynakURL })
+            });
+            const result = await response.json();
+            
+            if (result.success) {
+                alert("Makale başarıyla güncellendi! Sayfa yenileniyor.");
+                router.refresh(); // Or reload window
+                window.location.reload();
+            } else {
+                alert("Güncelleme hatası: " + (result.error || "Bilinmeyen hata"));
+            }
+        } catch (error: any) {
+            alert("Sistem hatası: " + error.message);
+        } finally {
+            setIsRefreshing(false);
+        }
+    };
+
     const handleLike = async () => {
         if (!currentUser || !article || !id) return;
         const result = await analyticsService.toggleLike(
@@ -154,7 +182,7 @@ export default function ArticleDetail() {
         setIsSubmitting(true);
         try {
             const commentObj = {
-                articleId: id,
+                articleId: id as string,
                 userId: currentUser.uid,
                 userName: currentUser.displayName || 'Anonim',
                 userPhoto: currentUser.photoURL || '',
@@ -162,7 +190,7 @@ export default function ArticleDetail() {
             };
             await analyticsService.addComment(commentObj, currentUser.email || '', article.baslik);
             setNewComment("");
-            const updatedComments = await analyticsService.getComments(id);
+            const updatedComments = await analyticsService.getComments(id as string);
             setComments(updatedComments);
         } catch (error: any) {
             console.error("Comment error:", error);
@@ -217,6 +245,19 @@ export default function ArticleDetail() {
                     </Link>
 
                     <div className="flex items-center gap-2 sm:gap-4">
+                        {/* Refresh Button (Only show for authors or admins if possible, though currently public) */}
+                        <button
+                            onClick={handleRefresh}
+                            disabled={isRefreshing}
+                            className={cn(
+                                "p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-brand-purple",
+                                isRefreshing && "opacity-50 cursor-not-allowed"
+                            )}
+                            title="Kaynaktan Güncelle"
+                        >
+                            <RefreshCw className={cn("w-5 h-5", isRefreshing && "animate-spin")} />
+                        </button>
+                        <div className="w-px h-6 bg-slate-200 dark:bg-slate-800 mx-1" />
                         <button
                             onClick={() => setFontSize(prev => Math.min(prev + 2, 24))}
                             className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"

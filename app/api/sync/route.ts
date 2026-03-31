@@ -39,11 +39,14 @@ export async function POST(req: NextRequest) {
             const docRef = adminDb.collection('articles').doc(docId);
 
             const doc = await docRef.get();
-            if (!doc.exists) {
+            const isTruncated = !doc.exists || (doc.data()?.icerikHTML?.length || 0) < 500;
+
+            if (!doc.exists || isTruncated) {
                 batch.set(docRef, {
                     ...article,
-                    olusturmaTarihi: new Date(),
-                });
+                    olusturmaTarihi: doc.exists ? doc.data()?.olusturmaTarihi : new Date(),
+                    lastUpdated: new Date()
+                }, { merge: true });
                 savedCount++;
             }
         }
