@@ -198,9 +198,11 @@ export default function ArticleDetail() {
         return tmp.textContent || tmp.innerText || "";
     };
 
-    const handleSpeech = (startText?: string) => {
+    const handleSpeech = (startTextOrEvent?: string | React.MouseEvent) => {
         setIsManualStop(false);
         if (!article) return;
+
+        const startText = typeof startTextOrEvent === 'string' ? startTextOrEvent : undefined;
 
         // Eğer belirli bir metinden başlanmak isteniyorsa (tıklama ile)
         // Mevcut seslendirmeyi tamamen durdurup yeni baştan (o noktadan) başla
@@ -846,7 +848,7 @@ export default function ArticleDetail() {
                 )}
                 {!isSpeaking && (
                     <button 
-                        onClick={handleSpeech}
+                        onClick={() => handleSpeech()}
                         className="w-14 h-14 bg-slate-900 text-white rounded-full shadow-2xl flex items-center justify-center hover:bg-brand-purple transition-colors"
                     >
                         <Volume2 className="w-6 h-6" />
