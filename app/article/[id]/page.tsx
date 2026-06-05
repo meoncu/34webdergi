@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
     ArrowLeft,
     Share2,
@@ -13,6 +13,7 @@ import {
     Printer,
     ChevronLeft,
     ChevronRight,
+    ChevronDown,
     Loader2,
     RefreshCw,
     Volume2,
@@ -56,6 +57,8 @@ export default function ArticleDetail() {
     const [playbackRate, setPlaybackRate] = useState(1.0);
     const [utterance, setUtterance] = useState<SpeechSynthesisUtterance | null>(null);
     const [isManualStop, setIsManualStop] = useState(false);
+    const [readingPointer, setReadingPointer] = useState<{ top: number; left: number } | null>(null);
+    const contentRef = useRef<HTMLDivElement>(null);
 
     const params = useParams();
     const router = useRouter();
@@ -195,34 +198,60 @@ export default function ArticleDetail() {
         return tmp.textContent || tmp.innerText || "";
     };
 
-    const handleSpeech = () => {
+    const handleSpeech = (startText?: string) => {
         setIsManualStop(false);
         if (!article) return;
 
-        // If currently speaking, handle pause/resume
-        if (isSpeaking && !isPaused) {
-            window.speechSynthesis.pause();
-            setIsPaused(true);
-            return;
-        }
-
-        if (isSpeaking && isPaused) {
-            window.speechSynthesis.resume();
+        // Eğer belirli bir metinden başlanmak isteniyorsa (tıklama ile)
+        // Mevcut seslendirmeyi tamamen durdurup yeni baştan (o noktadan) başla
+        if (startText) {
+            window.speechSynthesis.cancel();
+            setIsSpeaking(false);
             setIsPaused(false);
-            return;
+        } else {
+            // Standart oynat/duraklat mantığı
+            if (isSpeaking && !isPaused) {
+                window.speechSynthesis.pause();
+                setIsPaused(true);
+                return;
+            }
+
+            if (isSpeaking && isPaused) {
+                window.speechSynthesis.resume();
+                setIsPaused(false);
+                return;
+            }
         }
 
-        // --- Start a fresh speech session ---
-        
-        // Cancel any ongoing speech
+        // --- Yeni bir seslendirme oturumu başlat ---
         window.speechSynthesis.cancel();
         
-        const fullText = `${article.baslik}. Yazar: ${article.yazarAdi}. ${stripHtml(article.icerikHTML || article.icerikText)}`;
+        const contentText = stripHtml(article.icerikHTML || article.icerikText);
+        const fullText = `${article.baslik}. Yazar: ${article.yazarAdi}. ${contentText}`;
         
-        // Split text into manageable chunks (approx 200-300 chars, preferably at boundaries)
-        // This prevents the common browser issue where long text stops playing or throws errors.
+        // Metni parçalara böl (cümle sınırlarına dikkat etmeye çalışarak)
         const chunks = fullText.match(/.{1,250}(\s|$)|.{1,250}/g) || [fullText];
-        let currentChunkIndex = 0;
+        
+        let startIndex = 0;
+        if (startText) {
+            // Tıklanan metnin tüm içerik içindeki yaklaşık konumunu bul
+            const pos = contentText.indexOf(startText);
+            if (pos !== -1) {
+                // Başlık ve yazar bilgisinin uzunluğunu ekle
+                const prefixOffset = `${article.baslik}. Yazar: ${article.yazarAdi}. `.length;
+                const targetPos = pos + prefixOffset;
+                
+                // Bu pozisyonun hangi parçaya (chunk) denk geldiğini bul
+                let currentPos = 0;
+                for (let i = 0; i < chunks.length; i++) {
+                    if (currentPos + chunks[i].length > targetPos) {
+                        startIndex = i;
+                        break;
+                    }
+                    currentPos += chunks[i].length;
+                }
+            }
+        }
 
         const speakChunk = (index: number) => {
             if (index >= chunks.length) {
@@ -256,7 +285,62 @@ export default function ArticleDetail() {
             newUtterance.onstart = () => {
                 setIsSpeaking(true);
                 setIsPaused(false);
-                currentChunkIndex = index;
+            };
+
+            newUtterance.onboundary = (event) => {
+                if (event.name === 'word' && contentRef.current) {
+                    // Bu parçanın (chunk) başladığı global metin pozisyonu
+                    let chunkStartPos = 0;
+                    for (let i = 0; i < index; i++) chunkStartPos += chunks[i].length;
+                    
+                    const globalPos = chunkStartPos + event.charIndex;
+                    const prefixText = `${article.baslik}. Yazar: ${article.yazarAdi}. `;
+                    
+                    // Eğer okunan kısım makale içeriğindeyse (başlık/yazar bittiyse)
+                    if (globalPos >= prefixText.length) {
+                        const articleOffset = globalPos - prefixText.length;
+                        
+                        // DOM üzerinde bu offset'teki kelimeyi bul
+                        const walker = document.createTreeWalker(contentRef.current, NodeFilter.SHOW_TEXT, null);
+                        let currentOffset = 0;
+                        let node;
+                        
+                        while (node = walker.nextNode()) {
+                            const length = node.textContent?.length || 0;
+                            if (currentOffset + length > articleOffset) {
+                                try {
+                                    const range = document.createRange();
+                                    const start = articleOffset - currentOffset;
+                                    range.setStart(node, start);
+                                    range.setEnd(node, Math.min(start + (event.charLength || 5), length));
+                                    
+                                    const rect = range.getBoundingClientRect();
+                                    if (rect.top !== 0) {
+                                         setReadingPointer({
+                                             top: rect.top,
+                                             left: rect.left + (rect.width / 2)
+                                         });
+
+                                         // Otomatik kaydırma: Eğer kelime ekranın çok dışındaysa kaydır
+                                         if (rect.top < 150 || rect.top > window.innerHeight - 150) {
+                                             window.scrollBy({
+                                                 top: rect.top - (window.innerHeight / 2),
+                                                 behavior: 'smooth'
+                                             });
+                                         }
+                                     }
+                                } catch (e) {
+                                    // Range hatalarını yut (bazı HTML yapılarında oluşabilir)
+                                }
+                                break;
+                            }
+                            currentOffset += length;
+                        }
+                    } else {
+                        // Başlık veya yazar okunuyorsa göstergeyi gizle veya başlığa odakla
+                        setReadingPointer(null);
+                    }
+                }
             };
 
             newUtterance.onend = () => {
@@ -280,8 +364,22 @@ export default function ArticleDetail() {
             window.speechSynthesis.speak(newUtterance);
         };
 
-        // Start the first chunk
-        speakChunk(0);
+        // İlk parçadan veya belirlenen startIndex'ten başla
+        speakChunk(startIndex);
+    };
+
+    const handleContentClick = (e: React.MouseEvent<HTMLDivElement>) => {
+        // Sadece metin içeren elementlere tıklandığında çalış
+        const target = e.target as HTMLElement;
+        const validTags = ['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'SPAN', 'DIV'];
+        
+        if (validTags.includes(target.tagName)) {
+            const clickedText = target.innerText.trim();
+            // Çok kısa metinler (örn: sadece bir harf veya boşluk) için tetikleme
+            if (clickedText.length > 10) {
+                handleSpeech(clickedText);
+            }
+        }
     };
 
     const stopSpeech = () => {
@@ -289,6 +387,7 @@ export default function ArticleDetail() {
         window.speechSynthesis.cancel();
         setIsSpeaking(false);
         setIsPaused(false);
+        setReadingPointer(null);
     };
     // ----------------------------
 
@@ -401,18 +500,18 @@ export default function ArticleDetail() {
                 "sticky top-0 z-30 border-b backdrop-blur-md transition-colors",
                 isDarkMode ? "bg-slate-950/80 border-slate-800" : "bg-white/80 border-slate-200"
             )}>
-                <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <Link href="/" className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-brand-purple transition-colors">
+                <div className="max-w-4xl mx-auto px-2 sm:px-4 h-16 flex items-center justify-between">
+                    <div className="flex items-center gap-1 sm:gap-4">
+                        <Link href="/" className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-brand-purple transition-colors p-2">
                             <ArrowLeft className="w-4 h-4" />
                             <span className="hidden sm:inline">Geri Dön</span>
                         </Link>
                         
-                        <div className="hidden md:flex items-center gap-1">
+                        <div className="flex items-center gap-0.5 sm:gap-1">
                             {prevArticle && (
                                 <Link 
                                     href={`/article/${prevArticle.id}`} 
-                                    className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-brand-purple transition-colors"
+                                    className="p-1.5 sm:p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-brand-purple transition-colors"
                                     title={`Önceki: ${prevArticle.baslik}`}
                                 >
                                     <ChevronLeft className="w-5 h-5" />
@@ -421,7 +520,7 @@ export default function ArticleDetail() {
                             {nextArticle && (
                                 <Link 
                                     href={`/article/${nextArticle.id}`} 
-                                    className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-brand-purple transition-colors"
+                                    className="p-1.5 sm:p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-brand-purple transition-colors"
                                     title={`Sonraki: ${nextArticle.baslik}`}
                                 >
                                     <ChevronRight className="w-5 h-5" />
@@ -430,12 +529,12 @@ export default function ArticleDetail() {
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2 sm:gap-4">
-                        <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-0.5 sm:gap-2">
+                        <div className="flex items-center gap-0.5">
                             <button
                                 onClick={handleSpeech}
                                 className={cn(
-                                    "flex items-center gap-2 px-3 py-1.5 rounded-full transition-all border",
+                                    "flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-full transition-all border",
                                     isSpeaking 
                                         ? "bg-brand-purple text-white border-brand-purple shadow-lg shadow-brand-purple/20" 
                                         : "bg-white dark:bg-slate-900 text-slate-600 border-slate-200 dark:border-slate-800 hover:text-brand-purple hover:border-brand-purple"
@@ -447,86 +546,68 @@ export default function ArticleDetail() {
                                     {isSpeaking ? (isPaused ? "Duraklatıldı" : "Dinleniyor") : "Dinle"}
                                 </span>
                             </button>
-
-                            {isSpeaking && (
-                                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 rounded-full px-1.5 py-1 ml-1">
-                                    {[1, 1.25, 1.5, 2].map(rate => (
-                                        <button 
-                                            key={rate}
-                                            onClick={() => {
-                                                setPlaybackRate(rate);
-                                                // Restart to apply rate immediately (simplest way)
-                                                window.speechSynthesis.cancel();
-                                                setTimeout(handleSpeech, 100);
-                                            }}
-                                            className={cn(
-                                                "text-[9px] font-black px-1.5 py-0.5 rounded-md transition-all",
-                                                playbackRate === rate 
-                                                    ? "bg-white dark:bg-slate-700 text-brand-purple shadow-sm scale-110" 
-                                                    : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
-                                            )}
-                                        >
-                                            {rate}x
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
                         </div>
 
                         {isSpeaking && (
                             <button
                                 onClick={stopSpeech}
-                                className="p-2 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg text-red-500 transition-colors"
+                                className="p-1.5 sm:p-2 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg text-red-500 transition-colors"
                                 title="Durdur"
                             >
                                 <Square className="w-4 h-4 fill-current" />
                             </button>
                         )}
 
-                        <div className="w-px h-6 bg-slate-200 dark:bg-slate-800 mx-1" />
+                        <div className="hidden sm:block w-px h-6 bg-slate-200 dark:bg-slate-800 mx-0.5" />
                         
                         <button
                             onClick={handleRefresh}
                             disabled={isRefreshing}
                             className={cn(
-                                "p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-brand-purple",
+                                "p-1.5 sm:p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-brand-purple",
                                 isRefreshing && "opacity-50 cursor-not-allowed"
                             )}
                             title="Kaynaktan Güncelle"
                         >
-                            <RefreshCw className={cn("w-5 h-5", isRefreshing && "animate-spin")} />
+                            <RefreshCw className={cn("w-4 h-4 sm:w-5 h-5", isRefreshing && "animate-spin")} />
                         </button>
-                        <div className="w-px h-6 bg-slate-200 dark:bg-slate-800 mx-1" />
+                        
+                        <div className="hidden sm:block w-px h-6 bg-slate-200 dark:bg-slate-800 mx-0.5" />
+                        
                         <button
                             onClick={() => setFontSize(prev => Math.min(prev + 2, 24))}
-                            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                            className="p-1.5 sm:p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
                             title="Yazı Tipini Büyüt"
                         >
-                            <Type className="w-5 h-5" />
+                            <Type className="w-4 h-4 sm:w-5 h-5" />
                         </button>
+                        
                         <button
                             onClick={() => setIsDarkMode(!isDarkMode)}
-                            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                            className="p-1.5 sm:p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
                         >
-                            {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+                            {isDarkMode ? <Sun className="w-4 h-4 sm:w-5 h-5" /> : <Moon className="w-4 h-4 sm:w-5 h-5" />}
                         </button>
-                        <div className="w-px h-6 bg-slate-200 dark:bg-slate-800 mx-1" />
+                        
+                        <div className="hidden sm:block w-px h-6 bg-slate-200 dark:bg-slate-800 mx-0.5" />
+                        
                         <button
                             onClick={handleShare}
-                            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-brand-purple"
+                            className="p-1.5 sm:p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-brand-purple"
                         >
-                            <Share2 className="w-5 h-5" />
+                            <Share2 className="w-4 h-4 sm:w-5 h-5" />
                         </button>
+                        
                         <button
                             onClick={handleBookmark}
                             className={cn(
-                                "p-2 rounded-lg transition-colors",
+                                "p-1.5 sm:p-2 rounded-lg transition-colors",
                                 isBookmarked
                                     ? "bg-brand-purple/10 text-brand-purple"
                                     : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-brand-purple"
                             )}
                         >
-                            <BookMarked className={cn("w-5 h-5", isBookmarked && "fill-current")} />
+                            <BookMarked className={cn("w-4 h-4 sm:w-5 h-5", isBookmarked && "fill-current")} />
                         </button>
                     </div>
                 </div>
@@ -571,13 +652,37 @@ export default function ArticleDetail() {
 
                 {/* Content */}
                 <div
+                    ref={contentRef}
+                    onClick={handleContentClick}
                     className={cn(
-                        "prose prose-slate lg:prose-xl mx-auto overflow-visible transition-all duration-300",
+                        "prose prose-slate lg:prose-xl mx-auto overflow-visible transition-all duration-300 cursor-pointer hover:prose-p:bg-brand-purple/5 prose-p:transition-colors prose-p:rounded-lg prose-p:px-2 prose-p:-mx-2",
                         isDarkMode && "prose-invert",
                     )}
                     style={{ fontSize: `${fontSize}px`, lineHeight: 1.6 }}
+                    title="Seslendirmeyi buradan başlatmak için tıklayın"
                     dangerouslySetInnerHTML={{ __html: article.icerikHTML || article.icerikText }}
                 />
+
+                {/* Reading Pointer (Arrow) */}
+                {readingPointer && isSpeaking && (
+                    <div 
+                        className="fixed pointer-events-none z-50 transition-all duration-150 ease-out"
+                        style={{ 
+                            top: `${readingPointer.top}px`, 
+                            left: `${readingPointer.left}px`,
+                            transform: 'translate(-50%, -100%) translateY(-8px)'
+                        }}
+                    >
+                        <div className="relative">
+                            {/* Animated Arrow */}
+                            <div className="bg-brand-purple text-white p-1 rounded-full shadow-lg animate-bounce-subtle">
+                                <ChevronDown className="w-4 h-4" />
+                            </div>
+                            {/* Pulse effect */}
+                            <div className="absolute inset-0 bg-brand-purple rounded-full animate-ping opacity-25" />
+                        </div>
+                    </div>
+                )}
 
                 <div className="h-px bg-linear-to-r from-transparent via-slate-200 dark:via-slate-800 to-transparent my-16" />
 
@@ -722,7 +827,7 @@ export default function ArticleDetail() {
             </article>
 
             {/* Floating Action Menu for Mobile */}
-            <div className="fixed bottom-8 right-8 flex flex-col gap-3 group">
+            <div className="fixed bottom-20 right-6 sm:bottom-8 sm:right-8 flex flex-col gap-3 group z-40 transition-all">
                 {isSpeaking && (
                     <>
                         <button 
@@ -747,9 +852,29 @@ export default function ArticleDetail() {
                         <Volume2 className="w-6 h-6" />
                     </button>
                 )}
-                <button className="w-12 h-12 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-full shadow-xl flex items-center justify-center border border-slate-200 dark:border-slate-700 sm:hidden">
-                    <Printer className="w-5 h-5" />
-                </button>
+            </div>
+
+            {/* Mobile Bottom Navigation Bar */}
+            <div className="fixed bottom-0 left-0 right-0 h-16 bg-white/80 dark:bg-slate-900/80 backdrop-blur-lg border-t border-slate-200 dark:border-slate-800 flex items-center justify-between px-6 sm:hidden z-30">
+                {prevArticle ? (
+                    <Link href={`/article/${prevArticle.id}`} className="flex items-center gap-2 text-slate-500 font-bold text-sm">
+                        <ChevronLeft className="w-5 h-5" />
+                        <span>Önceki</span>
+                    </Link>
+                ) : <div />}
+
+                <div className="w-px h-8 bg-slate-200 dark:bg-slate-800" />
+
+                {nextArticle ? (
+                    <Link href={`/article/${nextArticle.id}`} className="flex items-center gap-2 text-slate-500 font-bold text-sm">
+                        <span>Sonraki</span>
+                        <ChevronRight className="w-5 h-5" />
+                    </Link>
+                ) : (
+                    <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="flex items-center gap-2 text-slate-500 font-bold text-sm">
+                        <span>Başa Dön</span>
+                    </button>
+                )}
             </div>
         </div>
     );

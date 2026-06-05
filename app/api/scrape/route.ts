@@ -7,10 +7,11 @@ export async function GET(req: NextRequest) {
     const url = req.nextUrl.searchParams.get('url');
     const mode = req.nextUrl.searchParams.get('mode'); // 'article', 'issue', or 'discover'
     let cookieString = req.nextUrl.searchParams.get('cookie');
+    const refresh = req.nextUrl.searchParams.get('refresh') === 'true';
 
     // Eğer dışarıdan cookie verilmediyse otomatik giriş mekanizmasını kullan
     if (!cookieString) {
-        const autoCookie = await getAuthCookie();
+        const autoCookie = await getAuthCookie(refresh);
         if (autoCookie) {
             cookieString = autoCookie;
         }
@@ -178,26 +179,78 @@ export async function GET(req: NextRequest) {
         // ====================================================================
         // MODE: ARTICLE (Varsayılan) - Tek makale içeriğini çek
         // ====================================================================
-        const baslik = $('.main-title').first().text().trim() || $('h1').first().text().trim() || $('title').text().split('|')[0].trim();
+        const pageTitle = $('title').text();
+        const bodyText = $('body').text().toLowerCase();
+        
+        // Giriş sayfasına yönlendirilip yönlendirilmediğimizi kontrol et
+        const isLoginPage = 
+            bodyText.includes('giriş yap') && 
+            (bodyText.includes('e-posta') || bodyText.includes('şifre')) &&
+            !bodyText.includes('çıkış yap');
+
+        if (isLoginPage) {
+            console.log(`[SCRAPER] Login required for ${url}`);
+            return NextResponse.json({ 
+                error: 'Oturum açılması gerekiyor. Lütfen abonelik bilgilerini kontrol edin veya çerezleri yenileyin.',
+                isTruncated: true,
+                url
+            });
+        }
+
+        const baslik = $('.main-title').first().text().trim() || $('h1').first().text().trim() || pageTitle.split('|')[0].trim();
         const yazarAdi = $('.post-author a').first().text().trim() || $('.author-info h3 a').first().text().trim() || $('.author').first().text().trim();
         const spot = $('.entry-spot').first().text().trim();
 
         let icerikHTML = '';
-        const selectors = ['#content', '.entry-content', '.post-content-area', '.article-content', 'article'];
+        const selectors = [
+            '#content', 
+            '.entry-content', 
+            '.post-content-area', 
+            '.article-content', 
+            'article',
+            '.post-content',
+            '.text-content',
+            '.entry-content-all',
+            '.detail-content', // Yeni eklenen
+            '.post-body'       // Yeni eklenen
+        ];
         let bestContainer = null;
 
         for (const sel of selectors) {
             const el = $(sel);
             if (el.length > 0) {
-                if (el.text().trim().length > (bestContainer?.text().trim().length || 0)) {
+                const textLen = el.text().trim().length;
+                if (textLen > (bestContainer?.text().trim().length || 0)) {
                     bestContainer = el;
                 }
             }
         }
 
+        // Eğer hala bulunamadıysa ama sayfa yüklendiyse, p etiketlerini topla
+        if (!bestContainer || bestContainer.text().trim().length < 200) {
+            const paragraphs = $('p');
+            if (paragraphs.length > 5) {
+                // En çok p içeren kapsayıcıyı bulmaya çalış
+                const parents = new Map();
+                paragraphs.each((_, p) => {
+                    const parent = $(p).parent();
+                    const count = (parents.get(parent) || 0) + 1;
+                    parents.set(parent, count);
+                });
+                let maxCount = 0;
+                parents.forEach((count, parent) => {
+                    if (count > maxCount) {
+                        maxCount = count;
+                        bestContainer = parent;
+                    }
+                });
+            }
+        }
+
         if (bestContainer) {
             const clone = bestContainer.clone();
-            clone.find('.entry-spot, .alert, .alert-warning, .social-share, .author-box, .post-meta, script, style, .ads, .advertisement').remove();
+            // Gereksiz alanları temizle
+            clone.find('.entry-spot, .alert, .alert-warning, .social-share, .author-box, .post-meta, script, style, .ads, .advertisement, .related-posts, .comments-area, .sidebar, footer, header, nav').remove();
             icerikHTML = clone.html()?.trim() || '';
         }
 
@@ -206,7 +259,9 @@ export async function GET(req: NextRequest) {
             pageText.includes('abonelik gerekmektedir') ||
             pageText.includes('üye girişi yap') ||
             pageText.includes('abone olmak için tıklayınız') ||
-            icerikHTML.length < 800;
+            (icerikHTML.length < 300 && pageText.includes('devamını okumak için')); 
+
+        console.log(`[SCRAPER] Article mode: ${baslik} (${icerikHTML.length} chars) - Truncated: ${isTruncated}`);
 
         return NextResponse.json({
             baslik,

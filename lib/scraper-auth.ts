@@ -1,10 +1,14 @@
 import { chromium } from 'playwright';
 
 let cachedCookie: string | null = null;
+let lastAuthTime: number = 0;
 let isAuthenticating = false;
 
-export async function getAuthCookie(): Promise<string | null> {
-    if (cachedCookie) {
+export async function getAuthCookie(force: boolean = false): Promise<string | null> {
+    const now = Date.now();
+    
+    // Eğer zorlanmadıysa ve son 1 saat içinde çerez alındıysa önbelleği kullan
+    if (cachedCookie && !force && (now - lastAuthTime < 3600000)) {
         return cachedCookie;
     }
 
@@ -69,6 +73,7 @@ export async function getAuthCookie(): Promise<string | null> {
         
         if (cookieStr) {
             cachedCookie = cookieStr;
+            lastAuthTime = Date.now();
             console.log('Başarıyla çerezler yakalandı.');
         } else {
             console.log('Çerez yakalanamadı.');

@@ -166,26 +166,53 @@ export default function AdminArticles() {
             let addedCount = 0;
             let updatedCount = 0;
 
-            for (let art of sampleArticles) {
+            // İlk makaleye başlamadan önce kısa bir bekleyiş (oturumun oturması için)
+            console.log(`[SYNC] Makale içerikleri çekilmeye başlanıyor...`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+
+            for (let i = 0; i < sampleArticles.length; i++) {
+                let art = sampleArticles[i];
+                
                 // Her makalenin içine girip tam metni al
                 if (art.kaynakURL) {
                     try {
-                        const scrapeUrl = `/api/scrape?url=${encodeURIComponent(art.kaynakURL)}`;
-                        const scrapeRes = await fetch(scrapeUrl);
-                        if (scrapeRes.ok) {
-                            const scrapeData = await scrapeRes.json();
-                            if (scrapeData.icerikHTML && !scrapeData.error) {
-                                art = {
-                                    ...art,
-                                    baslik: scrapeData.baslik || art.baslik,
-                                    yazarAdi: scrapeData.yazarAdi || "Anonim",
-                                    icerikHTML: scrapeData.icerikHTML,
-                                    icerikText: scrapeData.spot || art.icerikText
-                                };
-                            }
+                        console.log(`[SYNC] İşleniyor (${i + 1}/${sampleArticles.length}): ${art.baslik}`);
+                        
+                        // Botu çok yormamak için her makale arası bekle (ilk makale hariç, yukarıda zaten bekledik)
+                        if (i > 0) {
+                            await new Promise(resolve => setTimeout(resolve, 2500));
+                        }
+
+                        let scrapeUrl = `/api/scrape?url=${encodeURIComponent(art.kaynakURL)}`;
+                        let scrapeRes = await fetch(scrapeUrl);
+                        let scrapeData = await scrapeRes.json();
+
+                        // Eğer oturum hatası aldıysak bir kez çerezleri yenileyip dene
+                        if (scrapeData.error && (scrapeData.error.includes('Oturum') || scrapeData.error.includes('Giriş'))) {
+                            console.log(`[SYNC] Oturum hatası algılandı, çerezler yenilenip tekrar deneniyor...`);
+                            await new Promise(resolve => setTimeout(resolve, 3000)); // Yenileme öncesi bekle
+                            scrapeUrl += '&refresh=true';
+                            scrapeRes = await fetch(scrapeUrl);
+                            scrapeData = await scrapeRes.json();
+                        }
+
+                        if (scrapeRes.ok && scrapeData.icerikHTML && !scrapeData.error) {
+                            // İçerik başarıyla çekildiyse güncelle
+                            art = {
+                                ...art,
+                                baslik: scrapeData.baslik || art.baslik,
+                                yazarAdi: scrapeData.yazarAdi || art.yazarAdi,
+                                icerikHTML: scrapeData.icerikHTML,
+                                icerikText: scrapeData.spot || (scrapeData.icerikHTML.replace(/<[^>]*>/g, '').substring(0, 250) + '...')
+                            };
+                            console.log(`[SYNC] Başarılı: ${art.baslik} (${scrapeData.icerikHTML.length} karakter)`);
+                        } else {
+                            console.warn(`[SYNC] İçerik çekilemedi veya eksik: ${art.baslik}`, scrapeData.error || 'İçerik boş');
+                            // Eğer içerik çekilemediyse, placeholder ile kaydetmek yerine 
+                            // kullanıcıya uyarı verebiliriz ama döngüyü bozmayalım.
                         }
                     } catch (err) {
-                        console.error(`Failed to scrape ${art.baslik}:`, err);
+                        console.error(`[SYNC] Kritik hata (${art.baslik}):`, err);
                     }
                 }
 
