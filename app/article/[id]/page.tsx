@@ -185,11 +185,18 @@ export default function ArticleDetail() {
 
     // --- Speech Synthesis Logic ---
     useEffect(() => {
-        return () => {
-            if (window.speechSynthesis) {
+        // Seslerin yüklendiğinden emin ol (özellikle Desktop Chrome için)
+        if (window.speechSynthesis) {
+            window.speechSynthesis.getVoices();
+            const handleVoicesChanged = () => {
+                window.speechSynthesis.getVoices();
+            };
+            window.speechSynthesis.addEventListener('voiceschanged', handleVoicesChanged);
+            return () => {
+                window.speechSynthesis.removeEventListener('voiceschanged', handleVoicesChanged);
                 window.speechSynthesis.cancel();
-            }
-        };
+            };
+        }
     }, []);
 
     const stripHtml = (html: string) => {
@@ -287,9 +294,15 @@ export default function ArticleDetail() {
             newUtterance.onstart = () => {
                 setIsSpeaking(true);
                 setIsPaused(false);
+                console.log("[TTS] Started speaking chunk:", index);
             };
 
             newUtterance.onboundary = (event) => {
+                // Hata ayıklama için konsola yaz (sadece ilk birkaç kelime için)
+                if (event.charIndex < 50) {
+                    console.log("[TTS] Boundary reached:", event.name, event.charIndex);
+                }
+                
                 if (event.name === 'word' && contentRef.current) {
                     // Bu parçanın (chunk) başladığı global metin pozisyonu
                     let chunkStartPos = 0;
@@ -318,15 +331,21 @@ export default function ArticleDetail() {
                                     
                                     const rect = range.getBoundingClientRect();
                                     if (rect.top !== 0) {
-                                         setReadingPointer({
-                                             top: rect.top,
-                                             left: rect.left + (rect.width / 2)
-                                         });
+                                         // Viewport dışına çıkmışsa gösterme (desktop için önemli)
+                                         if (rect.top < 0 || rect.top > window.innerHeight) {
+                                             setReadingPointer(null);
+                                         } else {
+                                             setReadingPointer({
+                                                 top: rect.top,
+                                                 left: rect.left + (rect.width / 2)
+                                             });
+                                         }
 
                                          // Otomatik kaydırma: Eğer kelime ekranın çok dışındaysa kaydır
                                          if (rect.top < 150 || rect.top > window.innerHeight - 150) {
+                                             const scrollTarget = rect.top - (window.innerHeight / 2);
                                              window.scrollBy({
-                                                 top: rect.top - (window.innerHeight / 2),
+                                                 top: scrollTarget,
                                                  behavior: 'smooth'
                                              });
                                          }
